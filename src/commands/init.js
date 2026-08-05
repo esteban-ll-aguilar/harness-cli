@@ -1,18 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 const { ensureDir, copyDir, copyTemplate, writeHarnessRC, getHarnessDir } = require('../utils/fileUtils.js');
+const { detectLanguage, getLanguageConfig } = require('../utils/languageDetector.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
 function initProject(cwd, args) {
     const harnessDir = path.join(cwd, '.harness');
 
-    if (fs.existsSync(harnessDir)) {
+    if (fs.existsSync(harnessDir) && !args.includes('--force')) {
         console.log('⚠️  .harness/ already exists. Use --force to reinitialize.');
         return;
     }
 
-    console.log('🏗️  Initializing Harness SDD-BDD-TDD...');
+    // 🔍 AUTO-DETECT LANGUAGE
+    const langDetection = detectLanguage(cwd);
+    const langConfig = getLanguageConfig(langDetection.language);
+
+    console.log(`🏗️  Initializing Harness SDD-BDD-TDD...`);
+    console.log(`🔍 Detected language: ${langConfig.name} (confidence: ${langDetection.confidence})`);
 
     // Create .harness/ structure
     const dirs = [
@@ -57,12 +63,23 @@ function initProject(cwd, args) {
     copyDir(path.join(TEMPLATES_DIR, '.github'), path.join(harnessDir, '.github'));
     copyDir(path.join(TEMPLATES_DIR, 'scripts'), path.join(harnessDir, 'scripts'));
 
-    // Create .harnessrc in project root
+    // Create .harnessrc in project root with language config
     writeHarnessRC(cwd, {
         version: '1.0.0',
         harnessDir: '.harness',
         projectName: path.basename(cwd),
         createdAt: new Date().toISOString(),
+        language: {
+            detected: langDetection.language,
+            name: langConfig.name,
+            confidence: langDetection.confidence,
+            testFramework: langConfig.testFramework,
+            testExt: langConfig.testExt,
+            bddFramework: langConfig.bddFramework,
+            runner: langConfig.runner,
+            lint: langConfig.lint,
+            coverage: langConfig.coverage
+        },
         activeSpecs: [],
         completedSpecs: [],
         agents: {
@@ -116,6 +133,7 @@ node_modules/
         name: path.basename(cwd),
         version: '1.0.0',
         harnessVersion: '1.0.0',
+        language: langDetection.language,
         aiTools: ['claude', 'codex', 'opencode', 'kimi', 'qwen', 'deepseek', 'cursor', 'copilot'],
         memory: {
             type: 'obsidian-vault',
@@ -130,12 +148,14 @@ node_modules/
 date: ${new Date().toISOString()}
 agent: harness-cli
 event: project-initialized
+language: ${langConfig.name}
 ---
 
 # Project Initialized
 
 - Harness version: 1.0.0
 - Project: ${path.basename(cwd)}
+- Language: ${langConfig.name}
 - AI Tools configured: Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, Cursor, Copilot
 
 ## Next Steps
@@ -150,6 +170,10 @@ event: project-initialized
 
 📁 Structure created at: ${harnessDir}
 📄 Root references: AGENTS.md, .harnessrc, .obsidian
+🔧 Language: ${langConfig.name}
+   Test framework: ${langConfig.testFramework}
+   BDD framework: ${langConfig.bddFramework}
+   Lint: ${langConfig.lint}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { ensureDir, copyTemplate, getHarnessDir, nextSpecId, slugify, timestamp } = require('../utils/fileUtils.js');
 const { buildPrompt, TIERS } = require('../utils/tokenOptimizer.js');
+const { getLanguageConfig } = require('../utils/languageDetector.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -19,6 +20,12 @@ function newChange(cwd, args) {
         return;
     }
 
+    // Get language from .harnessrc
+    const rcPath = path.join(cwd, '.harnessrc');
+    const rc = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
+    const lang = rc.language?.detected || 'typescript';
+    const langConfig = getLanguageConfig(lang);
+
     const specId = nextSpecId(cwd);
     const slug = slugify(name);
     const specDirName = `${specId}-${slug}`;
@@ -35,43 +42,56 @@ function newChange(cwd, args) {
         slug: slug,
         date: new Date().toISOString().split('T')[0],
         timestamp: timestamp(),
-        specDir: specDirName
+        specDir: specDirName,
+        language: langConfig.name,
+        testFramework: langConfig.testFramework,
+        testExt: langConfig.testExt,
+        bddFramework: langConfig.bddFramework
     };
 
-    // 1. Create SPEC (SDD)
+    // Determine template subdirectory based on language
+    const langTemplateDir = path.join(TEMPLATES_DIR, 'specs', lang);
+    const defaultTemplateDir = path.join(TEMPLATES_DIR, 'specs', '_template');
+    const templateDir = fs.existsSync(langTemplateDir) ? langTemplateDir : defaultTemplateDir;
+
+    // 1. Create SPEC (SDD) — language agnostic
     copyTemplate(
-        path.join(TEMPLATES_DIR, 'specs', '_template', 'spec.md'),
+        path.join(defaultTemplateDir, 'spec.md'),
         path.join(specDir, 'spec.md'),
         vars
     );
 
     // 2. Create PLAN
     copyTemplate(
-        path.join(TEMPLATES_DIR, 'specs', '_template', 'plan.md'),
+        path.join(defaultTemplateDir, 'plan.md'),
         path.join(specDir, 'plan.md'),
         vars
     );
 
     // 3. Create TASKS
     copyTemplate(
-        path.join(TEMPLATES_DIR, 'specs', '_template', 'tasks.md'),
+        path.join(defaultTemplateDir, 'tasks.md'),
         path.join(specDir, 'tasks.md'),
         vars
     );
 
-    // 4. Create BDD Feature
+    // 4. Create BDD Feature — language agnostic
     copyTemplate(
-        path.join(TEMPLATES_DIR, 'specs', '_template', 'features', 'feature.feature'),
+        path.join(defaultTemplateDir, 'features', 'feature.feature'),
         path.join(specDir, 'features', `${slug}.feature`),
         vars
     );
 
-    // 5. Create TDD Test Stub
-    copyTemplate(
-        path.join(TEMPLATES_DIR, 'specs', '_template', 'tests', 'test.spec.js'),
-        path.join(specDir, 'tests', `${slug}.test.js`),
-        vars
-    );
+    // 5. Create TDD Test Stub — LANGUAGE SPECIFIC
+    const testTemplateName = `test${langConfig.testExt}`;
+    const testTemplatePath = path.join(templateDir, 'tests', testTemplateName);
+    const fallbackTestPath = path.join(defaultTemplateDir, 'tests', 'test.spec.js');
+
+    if (fs.existsSync(testTemplatePath)) {
+        copyTemplate(testTemplatePath, path.join(specDir, 'tests', `${slug}${langConfig.testExt}`), vars);
+    } else {
+        copyTemplate(fallbackTestPath, path.join(specDir, 'tests', `${slug}.test.js`), vars);
+    }
 
     // 6. Create ADR stub
     copyTemplate(
@@ -81,14 +101,13 @@ function newChange(cwd, args) {
     );
 
     // 7. Update .harnessrc
-    const rcPath = path.join(cwd, '.harnessrc');
-    const rc = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
     rc.activeSpecs.push({
         id: specId,
         name: name,
         slug: specDirName,
         status: 'spec-drafting',
         createdAt: new Date().toISOString(),
+        language: lang,
         agents: {
             interviewer: 'pending',
             architect: 'pending',
@@ -106,12 +125,14 @@ date: ${timestamp()}
 agent: harness-cli
 event: new-change-created
 spec: ${specDirName}
+language: ${langConfig.name}
 ---
 
 # New Change: ${name}
 
 - Spec ID: ${specId}
 - Directory: specs/${specDirName}/
+- Language: ${langConfig.name}
 - Status: spec-drafting
 
 ## Artifacts Created
@@ -119,8 +140,8 @@ spec: ${specDirName}
 1. \`specs/${specDirName}/spec.md\` — SDD Specification (EARS notation)
 2. \`specs/${specDirName}/plan.md\` — Technical Plan
 3. \`specs/${specDirName}/tasks.md\` — Atomic Tasks
-4. \`specs/${specDirName}/features/${slug}.feature\` — BDD Scenarios
-5. \`specs/${specDirName}/tests/${slug}.test.js\` — TDD Test Stubs
+4. \`specs/${specDirName}/features/${slug}.feature\` — BDD Scenarios (${langConfig.bddFramework})
+5. \`specs/${specDirName}/tests/${slug}${langConfig.testExt}\` — TDD Test Stubs (${langConfig.testFramework})
 6. \`brain/decisions/${specId}-${slug}-adr.md\` — Architecture Decision Record
 
 ## Next Steps (Agent Workflow)
@@ -144,15 +165,15 @@ spec: ${specDirName}
 ### 💻 Coder Agent
 - Read tasks.md + spec.md + tests/
 - Implement Red-Green-Refactor for each task
-- Output: Production code in src/
+- Output: Production code
 
 ### 🔍 Reviewer Agent
-- Compare src/ against spec.md
+- Compare code against spec.md
 - Verify all acceptance criteria are met
 - Output: Review report
 
 ### 🛡️ Guardian Agent
-- Run lint, security scan, coverage check
+- Run ${langConfig.lint}, security scan, coverage check
 - Verify CI gates pass
 - Output: Production-ready approval
 `;
@@ -169,13 +190,14 @@ spec: ${specDirName}
 ✅ New change created: ${specDirName}
 
 📁 Location: .harness/specs/${specDirName}/
+🔧 Language: ${langConfig.name}
 
 📋 SDD-BDD-TDD Artifacts:
    spec.md      → Specification (EARS notation)
    plan.md      → Technical architecture plan
    tasks.md     → Atomic implementation tasks
    features/    → BDD Given-When-Then scenarios
-   tests/       → TDD test stubs
+   tests/       → TDD test stubs (${langConfig.testFramework})
 
 🤖 AI Context (optimized):
    Tokens loaded: ~${tokens}
