@@ -1,0 +1,6 @@
+{
+  "session_start": "cat .harness/brain/AGENTS.md .harness/brain/constitution.md",
+  "pre_tool_use": "node .harness/.claude/scripts/session-start.js",
+  "post_file_write": "bash .harness/scripts/validate-spec.sh",
+  "description": "Harness SDD-BDD-TDD integration for Codex CLI"
+}

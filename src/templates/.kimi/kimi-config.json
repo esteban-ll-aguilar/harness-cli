@@ -1,0 +1,21 @@
+{
+  "tool": "kimi",
+  "harness_integration": true,
+  "context_loading": {
+    "always": [
+      ".harness/brain/AGENTS.md",
+      ".harness/brain/constitution.md"
+    ],
+    "on_demand": [
+      ".harness/brain/patterns/",
+      ".harness/brain/decisions/"
+    ]
+  },
+  "session_prompt": "You are operating within a Harness SDD-BDD-TDD project. Read AGENTS.md before any action. Follow the 6-agent workflow: Interviewer \u2192 Architect \u2192 Tester \u2192 Coder \u2192 Reviewer \u2192 Guardian.",
+  "commands": {
+    "new-change": "harness new-change",
+    "status": "harness status",
+    "review": "harness review",
+    "interview": "harness interview"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "tool": "qwen",
+  "harness_integration": true,
+  "model_settings": {
+    "model": "qwen-coder-plus",
+    "temperature": 0.2,
+    "max_tokens": 8192
+  },
+  "context_files": [
+    ".harness/brain/AGENTS.md",
+    ".harness/brain/constitution.md"
+  ],
+  "workflow": {
+    "language": "es",
+    "supports_multilingual_specs": true
+  }
+}

@@ -1,0 +1,68 @@
+name: Harness Guardian CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  guardian:
+    name: 🛡️ Guardian Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Linter
+        run: npm run lint
+        continue-on-error: false
+
+      - name: Run Unit Tests
+        run: npm run test:unit
+        continue-on-error: false
+
+      - name: Run Integration Tests
+        run: npm run test:integration
+        continue-on-error: false
+
+      - name: Run BDD Tests
+        run: npm run test:bdd
+        continue-on-error: false
+
+      - name: Check Coverage
+        run: |
+          npm run test:coverage
+          COVERAGE=$(cat coverage/coverage-summary.json | jq '.total.branches.pct')
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "❌ Coverage $COVERAGE% is below 80%"
+            exit 1
+          fi
+          echo "✅ Coverage: $COVERAGE%"
+
+      - name: Security Audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Validate Specs Exist
+        run: |
+          if [ -d ".harness/specs" ]; then
+            for spec in .harness/specs/*/; do
+              if [ ! -f "$spec/spec.md" ]; then
+                echo "❌ Missing spec.md in $spec"
+                exit 1
+              fi
+            done
+          fi
+          echo "✅ All specs validated"
+
+      - name: Harness Review
+        run: npx harness review

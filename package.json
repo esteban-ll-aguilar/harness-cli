@@ -1,0 +1,41 @@
+{
+  "name": "@harness/sdd-bdd-tdd",
+  "version": "1.0.0",
+  "description": "Production-grade multi-agent harness for SDD-BDD-TDD software development. Compatible with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, and any AI tool.",
+  "main": "src/cli.js",
+  "bin": {
+    "harness": "./bin/harness.js"
+  },
+  "scripts": {
+    "test": "node tests/runner.js"
+  },
+  "keywords": [
+    "harness",
+    "sdd",
+    "bdd",
+    "tdd",
+    "ai-agent",
+    "multi-agent",
+    "claude",
+    "codex",
+    "kimi",
+    "deepseek",
+    "qwen",
+    "opencode",
+    "spec-driven",
+    "behavior-driven",
+    "test-driven",
+    "obsidian"
+  ],
+  "author": "Harness Engineering",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ]
+}

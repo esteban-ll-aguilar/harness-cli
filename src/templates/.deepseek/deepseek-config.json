@@ -1,0 +1,28 @@
+{
+  "tool": "deepseek",
+  "harness_integration": true,
+  "model_settings": {
+    "model": "deepseek-coder",
+    "temperature": 0.1,
+    "max_tokens": 4096,
+    "top_p": 0.95
+  },
+  "context": {
+    "constitution": ".harness/brain/constitution.md",
+    "agents": ".harness/brain/AGENTS.md"
+  },
+  "specialization": {
+    "architect": {
+      "temperature": 0.2,
+      "model": "deepseek-reasoner"
+    },
+    "coder": {
+      "temperature": 0.1,
+      "model": "deepseek-coder"
+    },
+    "guardian": {
+      "temperature": 0.0,
+      "model": "deepseek-coder"
+    }
+  }
+}

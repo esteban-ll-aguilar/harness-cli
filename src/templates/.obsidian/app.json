@@ -1,0 +1,13 @@
+{
+  "alwaysUpdateLinks": true,
+  "attachmentFolderPath": "memory/assets",
+  "newFileLocation": "folder",
+  "newFileFolderPath": "memory",
+  "promptDelete": false,
+  "readableLineLength": false,
+  "showLineNumber": true,
+  "tabSize": 2,
+  "useMarkdownLinks": true,
+  "useTab": false,
+  "vimMode": false
+}
