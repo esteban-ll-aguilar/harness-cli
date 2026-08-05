@@ -7,10 +7,17 @@ const { getLanguageConfig } = require('../utils/languageDetector.js');
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
 function newChange(cwd, args) {
+    // Parse args
     const name = args[0];
-    if (!name) {
-        console.log('❌ Usage: harness new-change <feature-name>');
+    const langFlag = args.find(a => a.startsWith('--lang='));
+    const langOverride = langFlag ? langFlag.split('=')[1] : null;
+
+    if (!name || name.startsWith('--')) {
+        console.log('❌ Usage: harness new-change <feature-name> [options]');
         console.log('   Example: harness new-change user-authentication');
+        console.log('   Monorepo: harness new-change api --lang=go');
+        console.log('   Options:');
+        console.log('     --lang=<lang>  Override language (for monorepos)');
         return;
     }
 
@@ -20,107 +27,133 @@ function newChange(cwd, args) {
         return;
     }
 
-    // Get language from .harnessrc
+    // Get language from .harnessrc or override
     const rcPath = path.join(cwd, '.harnessrc');
-    const rc = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
-    const lang = rc.language?.detected || 'typescript';
-    const langConfig = getLanguageConfig(lang);
+    let rc;
+    try {
+        rc = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
+    } catch (e) {
+        console.error('❌ Error reading .harnessrc:', e.message);
+        return;
+    }
+
+    let lang = langOverride || rc.language?.detected || 'typescript';
+    let langConfig = getLanguageConfig(lang);
+
+    // Validate language
+    if (!langConfig) {
+        console.error(`❌ Unknown language: ${lang}`);
+        console.log('   Supported: typescript, javascript, python, go, rust, java, csharp, ruby, php, swift, kotlin, dart');
+        return;
+    }
+
+    // Check if monorepo and language is available
+    if (rc.isMonorepo && langOverride) {
+        const availableLangs = rc.languages?.all?.map(l => l.language) || [rc.language?.detected];
+        if (!availableLangs.includes(lang)) {
+            console.warn(`⚠️  Language "${lang}" was not detected during init.`);
+            console.log(`   Detected languages: ${availableLangs.join(', ')}`);
+            console.log(`   Continuing with ${langConfig.name} anyway...`);
+        }
+    }
 
     const specId = nextSpecId(cwd);
     const slug = slugify(name);
     const specDirName = `${specId}-${slug}`;
     const specDir = path.join(harnessDir, 'specs', specDirName);
 
-    ensureDir(specDir);
-    ensureDir(path.join(specDir, 'features'));
-    ensureDir(path.join(specDir, 'tests'));
-    ensureDir(path.join(specDir, 'docs'));
+    try {
+        ensureDir(specDir);
+        ensureDir(path.join(specDir, 'features'));
+        ensureDir(path.join(specDir, 'tests'));
+        ensureDir(path.join(specDir, 'docs'));
 
-    const vars = {
-        id: specId,
-        name: name,
-        slug: slug,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: timestamp(),
-        specDir: specDirName,
-        language: langConfig.name,
-        testFramework: langConfig.testFramework,
-        testExt: langConfig.testExt,
-        bddFramework: langConfig.bddFramework
-    };
+        const vars = {
+            id: specId,
+            name: name,
+            slug: slug,
+            date: new Date().toISOString().split('T')[0],
+            timestamp: timestamp(),
+            specDir: specDirName,
+            language: langConfig.name,
+            testFramework: langConfig.testFramework,
+            testExt: langConfig.testExt,
+            bddFramework: langConfig.bddFramework
+        };
 
-    // Determine template subdirectory based on language
-    const langTemplateDir = path.join(TEMPLATES_DIR, 'specs', lang);
-    const defaultTemplateDir = path.join(TEMPLATES_DIR, 'specs', '_template');
-    const templateDir = fs.existsSync(langTemplateDir) ? langTemplateDir : defaultTemplateDir;
+        // Determine template subdirectory based on language
+        const langTemplateDir = path.join(TEMPLATES_DIR, 'specs', lang);
+        const defaultTemplateDir = path.join(TEMPLATES_DIR, 'specs', '_template');
+        const templateDir = fs.existsSync(langTemplateDir) ? langTemplateDir : defaultTemplateDir;
 
-    // 1. Create SPEC (SDD) — language agnostic
-    copyTemplate(
-        path.join(defaultTemplateDir, 'spec.md'),
-        path.join(specDir, 'spec.md'),
-        vars
-    );
+        // 1. Create SPEC (SDD) — language agnostic
+        copyTemplate(
+            path.join(defaultTemplateDir, 'spec.md'),
+            path.join(specDir, 'spec.md'),
+            vars
+        );
 
-    // 2. Create PLAN
-    copyTemplate(
-        path.join(defaultTemplateDir, 'plan.md'),
-        path.join(specDir, 'plan.md'),
-        vars
-    );
+        // 2. Create PLAN
+        copyTemplate(
+            path.join(defaultTemplateDir, 'plan.md'),
+            path.join(specDir, 'plan.md'),
+            vars
+        );
 
-    // 3. Create TASKS
-    copyTemplate(
-        path.join(defaultTemplateDir, 'tasks.md'),
-        path.join(specDir, 'tasks.md'),
-        vars
-    );
+        // 3. Create TASKS
+        copyTemplate(
+            path.join(defaultTemplateDir, 'tasks.md'),
+            path.join(specDir, 'tasks.md'),
+            vars
+        );
 
-    // 4. Create BDD Feature — language agnostic
-    copyTemplate(
-        path.join(defaultTemplateDir, 'features', 'feature.feature'),
-        path.join(specDir, 'features', `${slug}.feature`),
-        vars
-    );
+        // 4. Create BDD Feature — language agnostic
+        copyTemplate(
+            path.join(defaultTemplateDir, 'features', 'feature.feature'),
+            path.join(specDir, 'features', `${slug}.feature`),
+            vars
+        );
 
-    // 5. Create TDD Test Stub — LANGUAGE SPECIFIC
-    const testTemplateName = `test${langConfig.testExt}`;
-    const testTemplatePath = path.join(templateDir, 'tests', testTemplateName);
-    const fallbackTestPath = path.join(defaultTemplateDir, 'tests', 'test.spec.js');
+        // 5. Create TDD Test Stub — LANGUAGE SPECIFIC
+        const testTemplateName = `test${langConfig.testExt}`;
+        const testTemplatePath = path.join(templateDir, 'tests', testTemplateName);
+        const fallbackTestPath = path.join(defaultTemplateDir, 'tests', 'test.spec.js');
 
-    if (fs.existsSync(testTemplatePath)) {
-        copyTemplate(testTemplatePath, path.join(specDir, 'tests', `${slug}${langConfig.testExt}`), vars);
-    } else {
-        copyTemplate(fallbackTestPath, path.join(specDir, 'tests', `${slug}.test.js`), vars);
-    }
-
-    // 6. Create ADR stub
-    copyTemplate(
-        path.join(TEMPLATES_DIR, 'brain', 'decisions', 'adr-template.md'),
-        path.join(harnessDir, 'brain', 'decisions', `${specId}-${slug}-adr.md`),
-        vars
-    );
-
-    // 7. Update .harnessrc
-    rc.activeSpecs.push({
-        id: specId,
-        name: name,
-        slug: specDirName,
-        status: 'spec-drafting',
-        createdAt: new Date().toISOString(),
-        language: lang,
-        agents: {
-            interviewer: 'pending',
-            architect: 'pending',
-            tester: 'pending',
-            coder: 'pending',
-            reviewer: 'pending',
-            guardian: 'pending'
+        if (fs.existsSync(testTemplatePath)) {
+            copyTemplate(testTemplatePath, path.join(specDir, 'tests', `${slug}${langConfig.testExt}`), vars);
+        } else {
+            console.warn(`⚠️  No template found for ${langConfig.name}, using fallback (TypeScript)`);
+            copyTemplate(fallbackTestPath, path.join(specDir, 'tests', `${slug}.test.js`), vars);
         }
-    });
-    fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
 
-    // 8. Create session log entry
-    const logEntry = `---
+        // 6. Create ADR stub
+        copyTemplate(
+            path.join(TEMPLATES_DIR, 'brain', 'decisions', 'adr-template.md'),
+            path.join(harnessDir, 'brain', 'decisions', `${specId}-${slug}-adr.md`),
+            vars
+        );
+
+        // 7. Update .harnessrc
+        rc.activeSpecs.push({
+            id: specId,
+            name: name,
+            slug: specDirName,
+            status: 'spec-drafting',
+            createdAt: new Date().toISOString(),
+            language: lang,
+            agents: {
+                interviewer: 'pending',
+                architect: 'pending',
+                tester: 'pending',
+                coder: 'pending',
+                reviewer: 'pending',
+                guardian: 'pending'
+            }
+        });
+        fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
+
+        // 8. Create session log entry
+        const logEntry = `---
 date: ${timestamp()}
 agent: harness-cli
 event: new-change-created
@@ -178,15 +211,15 @@ language: ${langConfig.name}
 - Output: Production-ready approval
 `;
 
-    fs.writeFileSync(
-        path.join(harnessDir, 'memory', 'session-logs', `change-${specId}-${slug}.md`),
-        logEntry
-    );
+        fs.writeFileSync(
+            path.join(harnessDir, 'memory', 'session-logs', `change-${specId}-${slug}.md`),
+            logEntry
+        );
 
-    // Show optimized context for AI
-    const { prompt, tokens } = buildPrompt(harnessDir, TIERS.ON_DEMAND, name);
+        // Show optimized context for AI
+        const { prompt, tokens } = buildPrompt(harnessDir, TIERS.ON_DEMAND, name);
 
-    console.log(`
+        console.log(`
 ✅ New change created: ${specDirName}
 
 📁 Location: .harness/specs/${specDirName}/
@@ -209,6 +242,12 @@ language: ${langConfig.name}
    2. Run: harness review ${specId}
    3. Or let your AI read AGENTS.md and continue
 `);
+
+    } catch (error) {
+        console.error(`\n❌ Error creating new change: ${error.message}`);
+        console.error('Stack trace:', error.stack);
+        process.exit(1);
+    }
 }
 
 module.exports = { newChange };

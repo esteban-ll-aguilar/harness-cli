@@ -3,7 +3,14 @@ const path = require('path');
 const { getHarnessDir, loadHarnessRC } = require('../utils/fileUtils.js');
 
 function status(cwd) {
-    const rc = loadHarnessRC(cwd);
+    let rc;
+    try {
+        rc = loadHarnessRC(cwd);
+    } catch (e) {
+        console.error('❌ Error reading .harnessrc:', e.message);
+        return;
+    }
+
     const harnessDir = getHarnessDir(cwd);
 
     if (!fs.existsSync(harnessDir)) {
@@ -17,15 +24,25 @@ function status(cwd) {
     const active = rc.activeSpecs || [];
     const completed = rc.completedSpecs || [];
 
-    // Count files
     const countFiles = (dir) => {
         if (!fs.existsSync(dir)) return 0;
-        return fs.readdirSync(dir, { recursive: true }).filter(f => !fs.statSync(path.join(dir, f)).isDirectory()).length;
+        try {
+            return fs.readdirSync(dir, { recursive: true }).filter(f => {
+                const fp = path.join(dir, f);
+                return fs.existsSync(fp) && !fs.statSync(fp).isDirectory();
+            }).length;
+        } catch (e) {
+            return 0;
+        }
     };
 
     const brainFiles = countFiles(path.join(harnessDir, 'brain'));
     const memoryFiles = countFiles(path.join(harnessDir, 'memory'));
     const testFiles = countFiles(path.join(harnessDir, 'tests'));
+
+    const langInfo = rc.isMonorepo 
+        ? `Monorepo (${rc.languages?.all?.length || 1} languages)`
+        : rc.language?.name || 'Unknown';
 
     console.log(`
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -33,6 +50,7 @@ function status(cwd) {
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Project: ${(rc.projectName || 'unknown').padEnd(58)} ║
 ║  Harness: ${(rc.version || 'unknown').padEnd(58)} ║
+║  Language: ${langInfo.padEnd(57)} ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  SPECS:                                                              ║
 ║    Total:     ${String(specs.length).padEnd(52)} ║
@@ -65,7 +83,16 @@ function status(cwd) {
     if (active.length > 0) {
         console.log('📝 Active Specs:');
         for (const spec of active) {
-            console.log(`   ${spec.id} — ${spec.name} [${spec.status}]`);
+            const lang = spec.language ? `(${spec.language})` : '';
+            console.log(`   ${spec.id} — ${spec.name} ${lang} [${spec.status}]`);
+        }
+    }
+
+    if (rc.isMonorepo && rc.languages?.all) {
+        console.log('\n📦 Monorepo Languages:');
+        for (const lang of rc.languages.all) {
+            const marker = lang.isRoot ? '📁 root' : '📂 sub';
+            console.log(`   ${lang.name} ${marker}`);
         }
     }
 }

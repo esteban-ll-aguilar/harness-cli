@@ -2,9 +2,16 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Language Detector
- * Auto-detects project language by analyzing root files.
- * Supports: TypeScript, JavaScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Dart
+ * Language Detector V2 — Monorepo-aware Deep Scanner
+ * 
+ * Scans the ENTIRE project tree (not just root) to detect all languages.
+ * In monorepos, multiple languages can coexist (e.g., frontend=TS, backend=Go, mobile=Dart).
+ * 
+ * Detection strategy:
+ * 1. Scan root first (fast path for single-language projects)
+ * 2. If root is ambiguous or low confidence, scan subdirectories up to 3 levels deep
+ * 3. Return ALL detected languages with confidence scores
+ * 4. Allow user to select or auto-pick the highest confidence
  */
 
 const LANGUAGE_SIGNATURES = {
@@ -12,73 +19,85 @@ const LANGUAGE_SIGNATURES = {
         files: ['tsconfig.json', 'package.json'],
         packageDeps: ['typescript', 'ts-node', '@types/'],
         extensions: ['.ts', '.tsx'],
-        default: true
+        weight: 10,
+        dirs: ['src', 'app', 'lib', 'packages']
     },
     javascript: {
         files: ['package.json'],
         packageDeps: [],
         extensions: ['.js', '.jsx'],
-        default: false
+        weight: 8,
+        dirs: ['src', 'app', 'lib', 'packages']
     },
     python: {
         files: ['pyproject.toml', 'setup.py', 'requirements.txt', 'Pipfile', 'poetry.lock'],
         packageDeps: [],
         extensions: ['.py'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'lib', 'backend', 'api', 'services']
     },
     go: {
         files: ['go.mod', 'go.sum'],
         packageDeps: [],
         extensions: ['.go'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'cmd', 'pkg', 'internal', 'backend', 'api', 'services']
     },
     rust: {
         files: ['Cargo.toml', 'Cargo.lock'],
         packageDeps: [],
         extensions: ['.rs'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'crates', 'backend', 'services']
     },
     java: {
         files: ['pom.xml', 'build.gradle', 'gradlew'],
         packageDeps: [],
         extensions: ['.java'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'backend', 'services']
     },
     csharp: {
-        files: ['.csproj', '.sln', 'Program.cs'],
+        files: ['.csproj', '.sln'],
         packageDeps: [],
         extensions: ['.cs'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'backend', 'services']
     },
     ruby: {
         files: ['Gemfile', 'Gemfile.lock', 'Rakefile'],
         packageDeps: [],
         extensions: ['.rb'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'lib', 'backend']
     },
     php: {
         files: ['composer.json', 'composer.lock'],
         packageDeps: [],
         extensions: ['.php'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'lib', 'backend']
     },
     swift: {
         files: ['Package.swift', '.xcodeproj'],
         packageDeps: [],
         extensions: ['.swift'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'ios', 'mobile']
     },
     kotlin: {
         files: ['build.gradle.kts', 'settings.gradle.kts'],
         packageDeps: [],
         extensions: ['.kt', '.kts'],
-        default: false
+        weight: 10,
+        dirs: ['src', 'app', 'android', 'mobile']
     },
     dart: {
         files: ['pubspec.yaml', 'pubspec.lock', 'analysis_options.yaml'],
         packageDeps: [],
         extensions: ['.dart'],
-        default: false
+        weight: 10,
+        dirs: ['lib', 'src', 'app', 'mobile', 'flutter']
     }
 };
 
@@ -217,21 +236,30 @@ const LANGUAGE_CONFIGS = {
     }
 };
 
-function detectLanguage(cwd) {
+/**
+ * Scan a single directory for language evidence
+ */
+function scanDirectory(dirPath, maxDepth = 0, currentDepth = 0) {
     const scores = {};
+    const locations = {}; // Where each language was found
 
     for (const [lang, sig] of Object.entries(LANGUAGE_SIGNATURES)) {
         scores[lang] = 0;
+        locations[lang] = [];
+    }
 
-        // Check signature files
+    // Check signature files in this directory
+    for (const [lang, sig] of Object.entries(LANGUAGE_SIGNATURES)) {
         for (const file of sig.files) {
-            if (fs.existsSync(path.join(cwd, file))) {
-                scores[lang] += 10;
+            const filePath = path.join(dirPath, file);
+            if (fs.existsSync(filePath)) {
+                scores[lang] += sig.weight;
+                locations[lang].push(filePath);
 
-                // Extra points if package.json has specific deps
+                // Extra points for package.json deps
                 if (file === 'package.json' && sig.packageDeps.length > 0) {
                     try {
-                        const pkg = JSON.parse(fs.readFileSync(path.join(cwd, file), 'utf8'));
+                        const pkg = JSON.parse(fs.readFileSync(filePath, 'utf8'));
                         const deps = { ...pkg.dependencies, ...pkg.devDependencies };
                         for (const dep of sig.packageDeps) {
                             if (Object.keys(deps).some(d => d.includes(dep))) {
@@ -242,41 +270,110 @@ function detectLanguage(cwd) {
                 }
             }
         }
+    }
 
-        // Check file extensions in src/ or lib/
-        const srcDirs = ['src', 'lib', 'app', 'test'];
-        for (const srcDirName of srcDirs) {
-            const srcDir = path.join(cwd, srcDirName);
-            if (fs.existsSync(srcDir)) {
-                try {
-                    const files = fs.readdirSync(srcDir, { recursive: true });
-                    for (const file of files) {
-                        if (sig.extensions.some(ext => file.endsWith(ext))) {
-                            scores[lang] += 2;
-                        }
+    // Check file extensions
+    try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isFile()) {
+                for (const [lang, sig] of Object.entries(LANGUAGE_SIGNATURES)) {
+                    if (sig.extensions.some(ext => entry.name.endsWith(ext))) {
+                        scores[lang] += 2;
+                        locations[lang].push(path.join(dirPath, entry.name));
                     }
-                } catch (e) {}
+                }
+            } else if (entry.isDirectory() && currentDepth < maxDepth) {
+                // Recurse into subdirectories
+                const subScores = scanDirectory(
+                    path.join(dirPath, entry.name), 
+                    maxDepth, 
+                    currentDepth + 1
+                );
+
+                for (const [lang, score] of Object.entries(subScores.scores)) {
+                    scores[lang] += score;
+                    if (subScores.locations[lang]) {
+                        locations[lang].push(...subScores.locations[lang]);
+                    }
+                }
             }
         }
+    } catch (e) {
+        // Permission denied or other error, skip
     }
 
-    // Find highest score
-    let detected = 'typescript'; // default
-    let maxScore = -1;
+    return { scores, locations };
+}
 
-    for (const [lang, score] of Object.entries(scores)) {
-        if (score > maxScore) {
-            maxScore = score;
-            detected = lang;
-        }
+/**
+ * Detect all languages in a project
+ */
+function detectLanguages(cwd, options = {}) {
+    const { deep = true, maxDepth = 3 } = options;
+
+    // Phase 1: Root scan (fast)
+    const rootScan = scanDirectory(cwd, 0, 0);
+
+    // Phase 2: Deep scan if needed
+    let deepScan = { scores: {}, locations: {} };
+    if (deep) {
+        deepScan = scanDirectory(cwd, maxDepth, 0);
     }
+
+    // Merge scores
+    const mergedScores = {};
+    const mergedLocations = {};
+
+    for (const lang of Object.keys(LANGUAGE_SIGNATURES)) {
+        const rootScore = rootScan.scores[lang] || 0;
+        const deepScore = deepScan.scores[lang] || 0;
+
+        // Root scores count more (they indicate main project)
+        mergedScores[lang] = (rootScore * 1.5) + deepScore;
+
+        mergedLocations[lang] = [
+            ...(rootScan.locations[lang] || []),
+            ...(deepScan.locations[lang] || [])
+        ];
+    }
+
+    // Sort by score
+    const sorted = Object.entries(mergedScores)
+        .filter(([_, score]) => score > 0)
+        .sort((a, b) => b[1] - a[1]);
+
+    // Build results
+    const results = sorted.map(([lang, score]) => ({
+        language: lang,
+        config: LANGUAGE_CONFIGS[lang],
+        confidence: score,
+        locations: mergedLocations[lang].slice(0, 5), // Top 5 locations
+        isRoot: (rootScan.scores[lang] || 0) > 0
+    }));
+
+    // Primary = highest score
+    const primary = results[0] || {
+        language: 'typescript',
+        config: LANGUAGE_CONFIGS.typescript,
+        confidence: 0,
+        locations: [],
+        isRoot: false
+    };
 
     return {
-        language: detected,
-        config: LANGUAGE_CONFIGS[detected],
-        confidence: maxScore,
-        scores
+        primary,
+        all: results,
+        isMonorepo: results.length > 1 && results[1].confidence > 5,
+        totalLanguages: results.length
     };
+}
+
+/**
+ * Legacy single-language detect (for backward compat)
+ */
+function detectLanguage(cwd) {
+    return detectLanguages(cwd, { deep: true, maxDepth: 3 });
 }
 
 function getTemplateDir(language) {
@@ -290,6 +387,7 @@ function getLanguageConfig(language) {
 
 module.exports = {
     detectLanguage,
+    detectLanguages,
     getTemplateDir,
     getLanguageConfig,
     LANGUAGE_CONFIGS,

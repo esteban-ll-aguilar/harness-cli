@@ -90,23 +90,24 @@ async function interview(cwd) {
 
     const answers = {};
 
-    for (const phase of QUESTIONS) {
-        console.log(`\n📋 PHASE: ${phase.phase}`);
-        console.log('─'.repeat(50));
+    try {
+        for (const phase of QUESTIONS) {
+            console.log(`\n📋 PHASE: ${phase.phase}`);
+            console.log('─'.repeat(50));
 
-        for (const question of phase.questions) {
-            const answer = await ask(`  ${question}\n  > `);
-            if (answer.trim()) {
-                if (!answers[phase.phase]) answers[phase.phase] = [];
-                answers[phase.phase].push({ question, answer });
+            for (const question of phase.questions) {
+                const answer = await ask(`  ${question}\n  > `);
+                if (answer.trim()) {
+                    if (!answers[phase.phase]) answers[phase.phase] = [];
+                    answers[phase.phase].push({ question, answer });
+                }
             }
         }
-    }
 
-    rl.close();
+        rl.close();
 
-    // Generate interview report
-    const report = `---
+        // Generate interview report
+        const report = `---
 date: ${timestamp()}
 agent: interviewer
 event: requirement-interview
@@ -138,10 +139,10 @@ ${detectAmbiguities(answers)}
 3. Proceed to BDD scenario generation
 `;
 
-    const reportPath = path.join(harnessDir, 'memory', 'session-logs', `interview-${timestamp()}.md`);
-    fs.writeFileSync(reportPath, report);
+        const reportPath = path.join(harnessDir, 'memory', 'session-logs', `interview-${timestamp()}.md`);
+        fs.writeFileSync(reportPath, report);
 
-    console.log(`
+        console.log(`
 ✅ Interview completed!
 
 📄 Report saved: ${reportPath}
@@ -151,12 +152,16 @@ ${detectAmbiguities(answers)}
 🚀 Next: Run \`harness new-change <name>\` to create the spec
    or let the Architect Agent read this interview and generate spec.md
 `);
+
+    } catch (error) {
+        rl.close();
+        console.error(`\n❌ Error during interview: ${error.message}`);
+        process.exit(1);
+    }
 }
 
 function detectAmbiguities(answers) {
     const ambiguities = [];
-
-    // Simple heuristics for ambiguity detection
     const allText = JSON.stringify(answers).toLowerCase();
 
     if (!allText.includes('performance') && !allText.includes('speed') && !allText.includes('latency')) {

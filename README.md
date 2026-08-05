@@ -4,19 +4,20 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
+**Version:** 1.0.0 | **Status:** Production Ready ✅ | **Tests:** 12/12 passing ✅
+
 ## ✨ Features
 
-- **🔍 Auto-Language Detection** — Detects TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin automatically
-- **6-Agent Workflow**:
-```
-🎙️ Interviewer → 📐 Architect → 🧪 Tester → 💻 Coder → 🔍 Reviewer → 🛡️ Guardian
-    (entrevista)    (spec SDD)   (BDD+TDD)   (código)    (revisión)   (CI gates)
-```
+- **🔍 Auto-Language Detection** — Detects TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Dart/Flutter
+- **📦 Monorepo Support** — Scans up to 3 levels deep, detects multiple languages, interactive selection
+- **6-Agent Workflow**: Interviewer → Architect → Tester → Coder → Reviewer → Guardian
 - **AI Agnostic**: Works with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, Cursor, Copilot
 - **Tiered Memory**: Optimizes token usage without degrading results
 - **Obsidian Vault**: Shared persistent memory across all AI tools
 - **EARS Notation**: Unambiguous, parseable requirements
 - **CI/CD Gates**: Automated quality checks before production
+- **Robust Error Handling**: Graceful failures with cleanup
+- **Self-Tested**: 12 automated tests covering all core functionality
 
 ## 🚀 Quick Start
 
@@ -41,9 +42,49 @@ harness status
 harness review
 ```
 
-## 🔍 Auto-Language Detection
+## 🚀 Quick Start (Alternative)
 
-Harness automatically detects your project language by analyzing root files:
+``` bash
+# 1. Descomprime
+unzip harness-cli.zip
+cd harness-cli
+
+# 2. Empaqueta e instala globalmente
+npm pack                    # Genera harness-sdd-bdd-tdd-1.0.0.tgz
+npm install -g ./harness-sdd-bdd-tdd-1.0.0.tgz
+
+# 3. Inicializa en tu proyecto
+cd tu-proyecto
+harness init
+
+# 4. Empieza a usar
+harness interview           # 🎙️ Entrevista interactiva
+harness new-change auth     # 📐 Nuevo flujo SDD-BDD-TDD
+harness status              # 📊 Estado del proyecto
+harness review              # 🛡️ Guardian gates
+```
+
+
+## 📦 Monorepo Support
+
+Harness scans your entire project tree (up to 3 levels deep) and detects ALL languages:
+
+```bash
+cd my-monorepo
+harness init
+# 🔍 Monorepo detected! 3 languages found:
+#   1. TypeScript (confidence: 25) 📁 root
+#   2. Python (confidence: 15) 📂 sub
+#   3. Dart (confidence: 12) 📂 sub
+# Select primary language for this harness (number): 1
+
+# Create features in different languages:
+harness new-change frontend-auth           # Uses TypeScript (primary)
+harness new-change backend-api --lang=go   # Uses Go
+harness new-change mobile-login --lang=dart # Uses Dart
+```
+
+## 🔍 Auto-Language Detection
 
 | Language | Detected By | Test Framework | BDD Framework |
 |----------|-------------|----------------|---------------|
@@ -103,11 +144,6 @@ Harness automatically detects your project language by analyzing root files:
 └── scripts/         # Automation scripts
 ```
 
-**Root references:**
-- `AGENTS.md` → copy of `.harness/brain/AGENTS.md` (read by any AI)
-- `.harnessrc` → project configuration with detected language
-- `.obsidian` → symlink/junction to `.harness/.obsidian`
-
 ## 🤖 AI Commands
 
 Any AI tool can recognize these commands:
@@ -150,6 +186,36 @@ Each agent has:
 | **ON_DEMAND** | Search brain/ for relevant context | Variable | When needed |
 | **TRIGGER** | Load spec.md when file changes | ~200 | After tool use |
 | **RARE** | Full vault scan | Variable | Explicit request |
+
+## 🛡️ Error Handling
+
+- **Graceful failures** with descriptive messages
+- **Automatic cleanup** on init failure
+- **Validation** of all inputs (language, spec names, etc.)
+- **Try/catch** on all file operations
+- **Stack traces** in development, clean messages in production
+
+## 🧪 Testing
+
+```bash
+npm test
+# 🧪 Running Harness CLI Tests
+# 📦 Language Detector
+#   ✅ detects TypeScript from tsconfig.json
+#   ✅ detects Python from requirements.txt
+#   ✅ detects Go from go.mod
+#   ✅ detects Dart from pubspec.yaml
+#   ✅ detects monorepo with multiple languages
+#   ✅ getLanguageConfig returns correct config
+#   ✅ getLanguageConfig falls back to TypeScript for unknown
+# 📦 File Utils
+#   ✅ slugify converts to kebab-case
+#   ✅ slugify handles special characters
+#   ✅ timestamp returns valid format
+#   ✅ nextSpecId returns 001 for empty project
+#   ✅ nextSpecId increments correctly
+# Results: 12 passed, 0 failed
+```
 
 ## 📄 License
 

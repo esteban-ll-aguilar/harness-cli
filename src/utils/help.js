@@ -9,24 +9,39 @@ function showHelp() {
 ║                                                                      ║
 ║  COMMANDS:                                                           ║
 ║                                                                      ║
-║  harness init                        Initialize .harness/ in project ║
-║  harness new-change <name>           Create SDD-BDD-TDD feature flow ║
-║  harness spec <name>                 Generate spec template only     ║
-║  harness status                      Show project health & progress  ║
-║  harness review                      Run guardian review gates       ║
-║  harness interview                   Start interactive requirement     ║
-║                                      gathering session               ║
-║  harness help                        Show this message               ║
+║  harness init [--force] [--auto]      Initialize .harness/           ║
+║                                       --force: overwrite existing    ║
+║                                       --auto: skip interactive mode  ║
+║                                                                      ║
+║  harness new-change <name> [opts]     Create SDD-BDD-TDD flow      ║
+║                                       --lang=<lang>: override lang   ║
+║                                       (typescript/python/go/rust/    ║
+║                                        java/csharp/ruby/php/swift/   ║
+║                                        kotlin/dart)                  ║
+║                                                                      ║
+║  harness spec <name>                  Generate spec template only    ║
+║                                                                      ║
+║  harness status                       Show project health & progress ║
+║                                                                      ║
+║  harness review                       Run guardian review gates      ║
+║                                                                      ║
+║  harness interview                    Start interactive requirements ║
+║                                                                      ║
+║  harness help                         Show this message              ║
 ║                                                                      ║
 ║  AI TOOL COMMANDS (recognized by any AI):                          ║
 ║                                                                      ║
-║  /harness-new-change <name>          Same as: harness new-change     ║
-║  /harness-status                     Same as: harness status         ║
-║  /harness-review                     Same as: harness review         ║
-║  /harness-interview                  Same as: harness interview      ║
+║  /harness-new-change <name>           Same as: harness new-change    ║
+║  /harness-status                      Same as: harness status        ║
+║  /harness-review                      Same as: harness review        ║
+║  /harness-interview                   Same as: harness interview     ║
 ║                                                                      ║
 ║  WORKFLOW:                                                           ║
 ║  Interview → Spec (SDD) → Plan → Tasks → BDD → TDD → Review        ║
+║                                                                      ║
+║  MONOREPO SUPPORT:                                                   ║
+║  harness init auto-detects ALL languages (up to 3 levels deep)      ║
+║  harness new-change <name> --lang=go  Create feature in Go module   ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 `);
