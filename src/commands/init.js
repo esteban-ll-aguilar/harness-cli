@@ -100,15 +100,13 @@ function initProject(cwd, args) {
         }
     });
 
-    // Create root-level references (symlinks or copies for compatibility)
+    // Create root-level references
     const rootAgents = path.join(cwd, 'AGENTS.md');
     const rootHarnessIgnore = path.join(cwd, '.harnessignore');
 
-    // Create AGENTS.md in root (copy, not symlink, for Windows compatibility)
     const agentsContent = fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8');
     fs.writeFileSync(rootAgents, agentsContent);
 
-    // Create .harnessignore
     fs.writeFileSync(rootHarnessIgnore, `# Harness ignore patterns
 node_modules/
 .harness/memory/session-logs/
@@ -116,13 +114,11 @@ node_modules/
 .env
 `);
 
-    // Create .obsidian symlink/reference in root for Obsidian app
     const rootObsidian = path.join(cwd, '.obsidian');
     if (!fs.existsSync(rootObsidian)) {
         try {
             fs.symlinkSync(path.join(harnessDir, '.obsidian'), rootObsidian, 'junction');
         } catch (e) {
-            // Windows may need junction, fallback to copy
             copyDir(path.join(harnessDir, '.obsidian'), rootObsidian);
         }
     }

@@ -25,7 +25,6 @@ const agents = loadFile('brain', 'AGENTS.md');
 const constitution = loadFile('brain', 'constitution.md');
 const northStar = loadFile('brain', 'north-star.md');
 
-// Output in a format Claude Code can ingest
 process.stdout.write('\n--- HARNESS CONTEXT START ---\n');
 process.stdout.write(agents);
 process.stdout.write('\n--- CONSTITUTION ---\n');
@@ -34,7 +33,6 @@ process.stdout.write('\n--- NORTH STAR ---\n');
 process.stdout.write(northStar);
 process.stdout.write('\n--- HARNESS CONTEXT END ---\n');
 
-// Show active specs
 const specsDir = path.join(harnessDir, 'specs');
 if (fs.existsSync(specsDir)) {
   const specs = fs.readdirSync(specsDir).filter(d => /^\d{3}-/.test(d));

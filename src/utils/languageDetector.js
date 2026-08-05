@@ -4,7 +4,7 @@ const path = require('path');
 /**
  * Language Detector
  * Auto-detects project language by analyzing root files.
- * Supports: TypeScript, JavaScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin
+ * Supports: TypeScript, JavaScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Dart
  */
 
 const LANGUAGE_SIGNATURES = {
@@ -72,6 +72,12 @@ const LANGUAGE_SIGNATURES = {
         files: ['build.gradle.kts', 'settings.gradle.kts'],
         packageDeps: [],
         extensions: ['.kt', '.kts'],
+        default: false
+    },
+    dart: {
+        files: ['pubspec.yaml', 'pubspec.lock', 'analysis_options.yaml'],
+        packageDeps: [],
+        extensions: ['.dart'],
         default: false
     }
 };
@@ -197,6 +203,17 @@ const LANGUAGE_CONFIGS = {
         lint: 'ktlint',
         coverage: 'jacoco',
         templateDir: 'kotlin'
+    },
+    dart: {
+        name: 'Dart',
+        testFramework: 'test (package:test)',
+        testExt: '_test.dart',
+        bddFramework: 'gherkin (package:gherkin)',
+        featureExt: '.feature',
+        runner: 'dart test',
+        lint: 'dart analyze',
+        coverage: 'dart test --coverage',
+        templateDir: 'dart'
     }
 };
 
@@ -226,14 +243,19 @@ function detectLanguage(cwd) {
             }
         }
 
-        // Check file extensions in src/
-        const srcDir = path.join(cwd, 'src');
-        if (fs.existsSync(srcDir)) {
-            const files = fs.readdirSync(srcDir, { recursive: true });
-            for (const file of files) {
-                if (sig.extensions.some(ext => file.endsWith(ext))) {
-                    scores[lang] += 2;
-                }
+        // Check file extensions in src/ or lib/
+        const srcDirs = ['src', 'lib', 'app', 'test'];
+        for (const srcDirName of srcDirs) {
+            const srcDir = path.join(cwd, srcDirName);
+            if (fs.existsSync(srcDir)) {
+                try {
+                    const files = fs.readdirSync(srcDir, { recursive: true });
+                    for (const file of files) {
+                        if (sig.extensions.some(ext => file.endsWith(ext))) {
+                            scores[lang] += 2;
+                        }
+                    }
+                } catch (e) {}
             }
         }
     }

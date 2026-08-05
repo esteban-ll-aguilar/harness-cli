@@ -58,6 +58,7 @@ Harness automatically detects your project language by analyzing root files:
 | **PHP** | `composer.json` | PHPUnit | Behat |
 | **Swift** | `Package.swift` | XCTest | XCTest + Gherkin |
 | **Kotlin** | `build.gradle.kts` | JUnit 5 | Cucumber JVM |
+| **Dart** | `pubspec.yaml` | package:test | package:gherkin |
 
 ## 🏗️ Architecture
 
