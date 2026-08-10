@@ -1,13 +1,20 @@
 name: Publish
 
 # Auto-publishes a new patch version to npm on every merge to main.
-# The version-bump commit includes "[skip-ci]" so this workflow does not
-# re-trigger itself in a loop. CI (tests) runs separately for PRs.
+# Uses npm Trusted Publishing (OIDC) — NO npm token stored as a secret.
 #
-# Setup required once in the repo:
-#   Settings → Secrets and variables → Actions → New repository secret
-#     Name: NPM_TOKEN
-#     Value: an npm access token (publish + read scope)
+# One-time setup on npmjs.com (package page → Settings → Trusted Publishers):
+#   Publisher:             GitHub Actions
+#   Organization or user:  esteban-ll-aguilar
+#   Repository:            harness-cli
+#   Workflow filename:     publish.yml
+#   Environment name:      (leave empty)
+#   Allowed actions:       include read/write (publish) permissions
+#   Publishing access:     "Require two-factor authentication and disallow
+#                          bypass 2fa tokens" (recommended)
+#
+# The version-bump commit includes "[skip-ci]" so this workflow does not
+# re-trigger itself in a loop.
 
 on:
   push:
@@ -18,6 +25,9 @@ jobs:
   publish:
     if: "!contains(github.event.head_commit.message, '[skip-ci]')"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # pushes the version bump + tag back to main
+      id-token: write   # requests the OIDC token npm uses to authenticate
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +37,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm (Trusted Publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
 
       - name: Run tests
         run: npm test
@@ -41,11 +53,8 @@ jobs:
         run: |
           npm version patch -m "chore(release): v%s [skip-ci]"
 
-      - name: Publish to npm
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (Trusted Publishing, no token)
+        run: npm publish --provenance --access public
 
       - name: Push version bump and tag
         run: git push --follow-tags
- 
