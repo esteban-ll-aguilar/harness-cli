@@ -48,7 +48,18 @@
     "new-change": "harness new-change",
     "status": "harness status",
     "review": "harness review",
-    "interview": "harness interview"
+    "interview": "harness interview",
+    "memory": "harness memory",
+    "rules": "harness rules",
+    "context": "harness context",
+    "advance": "harness advance",
+    "agent": "harness agent"
+  },
+  "mcp": {
+    "harness": {
+      "command": "harness-mcp",
+      "args": []
+    }
   },
   "context_files": [
     ".harness/brain/AGENTS.md",

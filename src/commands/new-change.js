@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { ensureDir, copyTemplate, getHarnessDir, nextSpecId, slugify, timestamp } = require('../utils/fileUtils.js');
 const { buildPrompt, TIERS } = require('../utils/tokenOptimizer.js');
-const { getLanguageConfig } = require('../utils/languageDetector.js');
+const { getLanguageConfig, LANGUAGE_CONFIGS } = require('../utils/languageDetector.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -38,14 +38,14 @@ function newChange(cwd, args) {
     }
 
     let lang = langOverride || rc.language?.detected || 'typescript';
-    let langConfig = getLanguageConfig(lang);
 
-    // Validate language
-    if (!langConfig) {
+    // Validate language — must exist, no silent fallback to TypeScript
+    if (!LANGUAGE_CONFIGS[lang]) {
         console.error(`❌ Unknown language: ${lang}`);
         console.log('   Supported: typescript, javascript, python, go, rust, java, csharp, ruby, php, swift, kotlin, dart');
         return;
     }
+    let langConfig = getLanguageConfig(lang);
 
     // Check if monorepo and language is available
     if (rc.isMonorepo && langOverride) {

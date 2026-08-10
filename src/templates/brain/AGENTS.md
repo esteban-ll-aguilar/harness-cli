@@ -212,10 +212,11 @@ Feature: [Feature Name]
 
 ## 9. Memory & Context Loading
 
-This project uses **tiered memory** to optimize tokens:
+This project uses **tiered memory + BM25 retrieval** over the `.harness` vault
+(Markdown in `brain/`, `specs/`, `memory/` — open `.harness/` as an Obsidian vault):
 
 - **ALWAYS loaded:** AGENTS.md + constitution.md + north-star.md (~500 tokens)
-- **ON DEMAND:** Search brain/ for relevant context
+- **ON DEMAND:** `harness memory search "<topic>"` → BM25 retrieval (no deps)
 - **TRIGGER:** Load spec.md when working on that feature
 - **RARE:** Full vault scan (only on explicit request)
 
@@ -232,6 +233,14 @@ This project uses **tiered memory** to optimize tokens:
 | `/harness-review` | Run guardian quality gates |
 | `/harness-interview` | Start requirement gathering |
 | `/harness-spec <name>` | Generate spec template |
+| `/harness-advance <id>` | Move a spec to the next agent stage |
+| `/harness-memory search <q>` | Semantic search over the vault |
+| `/harness-rules` | Show project rules (must follow) |
+| `/harness-context` | Dump the full optimized context bundle |
+
+**BEFORE you act:** read `.harnessrc`, run `harness memory search "<topic>"` to
+pull prior decisions, and follow the project rules in section 13. This project
+can also be driven via MCP (`harness-mcp` exposes 13 tools to any MCP agent).
 
 ---
 

@@ -10,38 +10,27 @@ function showHelp() {
 ║  COMMANDS:                                                           ║
 ║                                                                      ║
 ║  harness init [--force] [--auto]      Initialize .harness/           ║
-║                                       --force: overwrite existing    ║
-║                                       --auto: skip interactive mode  ║
+║                      [--tools=ID,..]  Select AI tools (checkbox: ␣,↑↓) ║
+║  harness new-change <name> [--lang=]  Create SDD-BDD-TDD flow        ║
+║  harness interview                    Interactive requirement session║
+║  harness spec <name>                  Spec template only             ║
+║  harness status                       Project health & progress      ║
+║  harness review                       Guardian quality gates         ║
+║  harness advance <id> [--to=<agent>]  Walk spec through 6 agents     ║
+║  harness agent list|new|run <name>    Manage & run AI agents         ║
+║  harness rules list|add|remove        Project rules (synced AGENTS)  ║
+║  harness memory search|index|stats    RAG over the .harness vault    ║
+║  harness memory obsidian              Regenerate Obsidian MOC        ║
+║  harness context [--spec] [--query]   Full optimized context bundle  ║
 ║                                                                      ║
-║  harness new-change <name> [opts]     Create SDD-BDD-TDD flow      ║
-║                                       --lang=<lang>: override lang   ║
-║                                       (typescript/python/go/rust/    ║
-║                                        java/csharp/ruby/php/swift/   ║
-║                                        kotlin/dart)                  ║
+║  AI INTEGRATION:                                                     ║
+║  harness-mcp                         MCP server (13 tools) for any   ║
+║                                      MCP-compatible agent           ║
 ║                                                                      ║
-║  harness spec <name>                  Generate spec template only    ║
+║  MONOREPO: init auto-detects all languages; --lang=<lang> per change ║
+║  MEMORY:  Obsidian vault (.harness/) + BM25 retrieval (zero deps)    ║
 ║                                                                      ║
-║  harness status                       Show project health & progress ║
-║                                                                      ║
-║  harness review                       Run guardian review gates      ║
-║                                                                      ║
-║  harness interview                    Start interactive requirements ║
-║                                                                      ║
-║  harness help                         Show this message              ║
-║                                                                      ║
-║  AI TOOL COMMANDS (recognized by any AI):                          ║
-║                                                                      ║
-║  /harness-new-change <name>           Same as: harness new-change    ║
-║  /harness-status                      Same as: harness status        ║
-║  /harness-review                      Same as: harness review        ║
-║  /harness-interview                   Same as: harness interview     ║
-║                                                                      ║
-║  WORKFLOW:                                                           ║
-║  Interview → Spec (SDD) → Plan → Tasks → BDD → TDD → Review        ║
-║                                                                      ║
-║  MONOREPO SUPPORT:                                                   ║
-║  harness init auto-detects ALL languages (up to 3 levels deep)      ║
-║  harness new-change <name> --lang=go  Create feature in Go module   ║
+║  WORKFLOW: Interview → Spec → Plan → Tasks → BDD → TDD → Review     ║
 ║                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 `);

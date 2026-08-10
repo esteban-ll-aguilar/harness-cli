@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, loadHarnessRC } = require('../utils/fileUtils.js');
+const { getHarnessDir, loadHarnessRC, listFiles } = require('../utils/fileUtils.js');
 
 function review(cwd, args) {
     const specId = args[0];
@@ -93,10 +93,8 @@ function review(cwd, args) {
     const testsDir = path.join(harnessDir, 'tests');
     if (fs.existsSync(testsDir)) {
         try {
-            const hasTests = fs.readdirSync(testsDir, { recursive: true }).some(f => {
-                const fp = path.join(testsDir, f);
-                return fs.existsSync(fp) && !fs.statSync(fp).isDirectory() && 
-                       (f.endsWith('.test.js') || f.endsWith('.spec.js') || f.endsWith('_test.py') || 
+            const hasTests = listFiles(testsDir).some(f => {
+                return (f.endsWith('.test.js') || f.endsWith('.spec.js') || f.endsWith('_test.py') || 
                         f.endsWith('_test.go') || f.endsWith('_test.dart') || f.endsWith('Test.java'));
             });
             checks.push({
@@ -120,6 +118,23 @@ function review(cwd, args) {
         } catch (e) {
             checks.push({ name: 'ADRs documented', status: 'ERROR' });
         }
+    }
+
+    // Check 7: Project rules synced into AGENTS.md
+    const projectRules = (rc.rules || []).filter(r => r.enabled !== false);
+    if (projectRules.length > 0) {
+        let synced = 0;
+        const agentsContent = fs.existsSync(path.join(harnessDir, 'brain', 'AGENTS.md'))
+            ? fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8') : '';
+        for (const r of projectRules) {
+            if (agentsContent.includes(r.title)) synced++;
+        }
+        checks.push({
+            name: `Project rules in AGENTS.md (${synced}/${projectRules.length})`,
+            status: synced === projectRules.length ? 'PASS' : 'FAIL'
+        });
+    } else {
+        checks.push({ name: 'Project rules (none configured)', status: 'WARN' });
     }
 
     // Print results

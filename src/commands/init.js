@@ -3,6 +3,7 @@ const path = require('path');
 const readline = require('readline');
 const { ensureDir, copyDir, copyTemplate, writeHarnessRC, getHarnessDir } = require('../utils/fileUtils.js');
 const { detectLanguages, getLanguageConfig } = require('../utils/languageDetector.js');
+const { parseToolsFlag, ALL_TOOL_IDS, writeToolConfigs } = require('../utils/toolSetup.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -72,8 +73,30 @@ async function initProject(cwd, args) {
 
     const langConfig = selectedLang.config;
 
+    // 🔌 Select AI tools (interactive checkbox, unless --auto / --tools=...)
+    const toolsFlag = args.find(a => a.startsWith('--tools='));
+    const toolsOverride = toolsFlag ? toolsFlag.split('=')[1] : null;
+    const skipToolsPrompt = args.includes('--auto') || !process.stdin.isTTY;
+
+    let selectedTools = toolsOverride
+        ? (parseToolsFlag(toolsOverride) || ALL_TOOL_IDS.slice())
+        : ALL_TOOL_IDS.slice();
+
+    if (!toolsOverride && !skipToolsPrompt) {
+        console.log('\n🔌 Select your AI tools (Espacio = marcar, ↑↓ = mover, Enter = confirmar):');
+        const { showCheckboxPrompt } = require('../utils/checkbox.js');
+        const { AI_TOOLS } = require('../utils/toolSetup.js');
+        const chosen = await showCheckboxPrompt(
+            '',
+            AI_TOOLS.map(t => t.label),
+            { checked: AI_TOOLS.map((_, i) => i) }
+        );
+        selectedTools = chosen.map(i => AI_TOOLS[i].id);
+    }
+
     console.log(`\n🏗️  Initializing Harness SDD-BDD-TDD...`);
     console.log(`🔧 Primary language: ${langConfig.name}`);
+    console.log(`🔌 AI tools: ${selectedTools.join(', ')}`);
     if (detection.isMonorepo) {
         console.log(`📦 Monorepo mode: ${detection.totalLanguages} languages detected`);
         console.log(`   (Other languages can be added with: harness new-change --lang <lang>)`);
@@ -87,6 +110,7 @@ async function initProject(cwd, args) {
             'brain/patterns',
             'brain/competencies',
             'memory/session-logs',
+            'memory/obsidian',
             'specs',
             'tests/unit',
             'tests/integration',
@@ -163,6 +187,10 @@ async function initProject(cwd, args) {
                 reviewer: { enabled: true, model: 'capable' },
                 guardian: { enabled: true, model: 'fast' }
             },
+            tools: {
+                selected: selectedTools,
+                all: ALL_TOOL_IDS.slice()
+            },
             quality: {
                 minCoverage: 80,
                 maxFileLines: 200,
@@ -183,6 +211,8 @@ async function initProject(cwd, args) {
         fs.writeFileSync(rootHarnessIgnore, `# Harness ignore patterns
 node_modules/
 .harness/memory/session-logs/
+.harness/memory/obsidian/
+.harness/.index/
 *.log
 .env
 `);
@@ -204,7 +234,7 @@ node_modules/
             harnessVersion: '1.0.0',
             language: selectedLang.language,
             isMonorepo: detection.isMonorepo,
-            aiTools: ['claude', 'codex', 'opencode', 'kimi', 'qwen', 'deepseek', 'cursor', 'copilot'],
+            aiTools: selectedTools,
             memory: {
                 type: 'obsidian-vault',
                 path: '.harness',
@@ -212,6 +242,9 @@ node_modules/
             }
         };
         fs.writeFileSync(path.join(harnessDir, 'vault-manifest.json'), JSON.stringify(manifest, null, 2));
+
+        // Write per-tool configs at the PROJECT ROOT (real MCP/CLI integration)
+        const toolSummary = writeToolConfigs(cwd, selectedTools);
 
         // Create initial session log
         const sessionLog = `---
@@ -239,28 +272,43 @@ isMonorepo: ${detection.isMonorepo}
 `;
         fs.writeFileSync(path.join(harnessDir, 'memory', 'session-logs', `init-${Date.now()}.md`), sessionLog);
 
+        // Build the retrieval index + Obsidian MOC so the vault works immediately
+        const { buildIndex, saveIndex } = require('../utils/retrieval.js');
+        const { generateObsidian } = require('./memory.js');
+        const index = buildIndex(harnessDir);
+        saveIndex(harnessDir, index);
+        generateObsidian(cwd, harnessDir);
+
+        // Auto-generate the 6 built-in agent competency scripts
+        const { ensureAgents } = require('./agent.js');
+        ensureAgents(cwd);
+
         console.log(`
 ✅ Harness initialized successfully!
 
 📁 Structure created at: ${harnessDir}
 📄 Root references: AGENTS.md, .harnessrc, .obsidian
 🔧 Primary language: ${langConfig.name}
+🔌 AI tools configured: ${selectedTools.join(', ')}
 ${detection.isMonorepo ? `📦 Monorepo: ${detection.totalLanguages} languages detected` : ''}
+
+🛠️  Tool configs written:
+${toolSummary.map(t => `   ${t.file.padEnd(28)} → ${t.label}`).join('\n')}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering
    harness new-change auth    → Create your first feature
    ${detection.isMonorepo ? 'harness new-change api --lang go    → Create feature in Go subproject' : ''}
 
-🤖 Any AI tool can now read AGENTS.md and .harnessrc to understand the project.
+🤖 Your AI tool can now talk to the harness via MCP (harness-mcp) and AGENTS.md.
 `);
 
     } catch (error) {
         console.error(`\n❌ Error initializing harness: ${error.message}`);
         console.error('Stack trace:', error.stack);
 
-        // Cleanup on failure
-        if (fs.existsSync(harnessDir) && !force) {
+        // Cleanup on failure (even with --force: a partial init must not stay)
+        if (fs.existsSync(harnessDir)) {
             console.log('🧹 Cleaning up incomplete initialization...');
             try {
                 fs.rmSync(harnessDir, { recursive: true, force: true });

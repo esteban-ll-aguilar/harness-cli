@@ -1,13 +1,15 @@
 {
   "name": "@harness/sdd-bdd-tdd",
-  "version": "1.0.0",
-  "description": "Production-grade multi-agent harness for SDD-BDD-TDD software development. Compatible with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, and any AI tool.",
+  "version": "1.1.0",
+  "description": "Production-grade multi-agent harness for SDD-BDD-TDD software development. RAG memory (BM25), Obsidian vault, MCP server, agent auto-generation. Compatible with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, and any AI tool.",
   "main": "src/cli.js",
   "bin": {
-    "harness": "./bin/harness.js"
+    "harness": "./bin/harness.js",
+    "harness-mcp": "./bin/harness-mcp.js"
   },
   "scripts": {
-    "test": "node tests/runner.js"
+    "test": "node tests/runner.js",
+    "test:unit": "node tests/runner.js"
   },
   "keywords": [
     "harness",
@@ -16,6 +18,10 @@
     "tdd",
     "ai-agent",
     "multi-agent",
+    "mcp",
+    "model-context-protocol",
+    "rag",
+    "bm25",
     "claude",
     "codex",
     "kimi",
@@ -27,10 +33,10 @@
     "test-driven",
     "obsidian"
   ],
-  "author": "Harness Engineering",
+  "author": "Esteban Leon Aguilar -- Harness Engineering",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.17.0"
   },
   "files": [
     "bin/",

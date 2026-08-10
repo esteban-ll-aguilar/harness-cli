@@ -1,6 +1,42 @@
 const fs = require('fs');
 const path = require('path');
 
+const DEFAULT_IGNORES = new Set([
+    'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', 'target',
+    '.next', '.nuxt', '.turbo', '.cache', 'coverage', 'vendor', '.obsidian',
+    '.claude', '.codex', '.kimi', '.deepseek', '.qwen', '.opencode', '.vscode',
+    '.github', '.idea', 'Pods', '.gradle', '__pycache__', '.venv', 'venv',
+    '.tox', '.pytest_cache', '.ruff_cache', '.mypy_cache', '.terraform',
+    '.serverless', 'tmp', 'temp'
+]);
+
+/**
+ * Recursively list files under a directory, skipping ignored dirs.
+ * Returns absolute paths. Works on Node 18.0+ (manual traversal).
+ */
+function listFiles(dir, { ignore = DEFAULT_IGNORES } = {}) {
+    const results = [];
+    function walk(current) {
+        let entries;
+        try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+        } catch (e) {
+            return;
+        }
+        for (const entry of entries) {
+            const fp = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                if (ignore.has(entry.name)) continue;
+                walk(fp);
+            } else if (entry.isFile()) {
+                results.push(fp);
+            }
+        }
+    }
+    walk(dir);
+    return results;
+}
+
 function ensureDir(dir) {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -80,5 +116,6 @@ function nextSpecId(cwd) {
 module.exports = {
     ensureDir, copyTemplate, copyDir,
     loadHarnessRC, writeHarnessRC, getHarnessDir,
-    slugify, timestamp, findLatestSpec, nextSpecId
+    slugify, timestamp, findLatestSpec, nextSpecId,
+    listFiles, DEFAULT_IGNORES
 };

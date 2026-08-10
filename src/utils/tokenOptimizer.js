@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { loadIndex, search } = require('./retrieval.js');
 
 /**
  * Tiered Memory Loader
@@ -31,29 +32,20 @@ function getAlwaysContext(harnessDir) {
 }
 
 function getOnDemandContext(harnessDir, query) {
-    // Simple keyword-based retrieval. In production, use embeddings.
-    const brainDir = path.join(harnessDir, 'brain');
-    if (!fs.existsSync(brainDir)) return '';
+    if (!query) return '';
+    // BM25 retrieval over the whole vault (brain + specs + memory).
+    // Falls back to a simple keyword scan when the index is unavailable.
+    const index = loadIndex(harnessDir, { rebuild: true });
+    if (!index || index.numDocs === 0) return '';
 
-    const results = [];
-    function scan(dir) {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                scan(fp);
-            } else if (entry.name.endsWith('.md')) {
-                const content = fs.readFileSync(fp, 'utf8');
-                const keywords = query.toLowerCase().split(/\s+/);
-                const score = keywords.filter(k => content.toLowerCase().includes(k)).length;
-                if (score > 0) {
-                    results.push({ score, file: fp.replace(harnessDir + '/', ''), content });
-                }
-            }
-        }
-    }
-    scan(brainDir);
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, 3).map(r => `--- ${r.file} ---\n${r.content}`).join('\n\n');
+    const hits = search(index, harnessDir, query, 3);
+    if (hits.length === 0) return '';
+
+    return hits.map(r => {
+        let content = '';
+        try { content = fs.readFileSync(path.join(harnessDir, r.rel), 'utf8'); } catch (e) {}
+        return `--- ${r.rel} ---\n${content}`;
+    }).join('\n\n');
 }
 
 function getTriggerContext(harnessDir, changedFile) {

@@ -61,8 +61,9 @@ function getAgentInstructions(harnessDir, tool) {
 }
 
 function getToolConfig(harnessDir, tool) {
+    // NOTE: only actual JSON config files belong here.
+    // Claude's session-start.js is a hook script (JS), not a JSON config — excluded.
     const configMap = {
-        [TOOLS.CLAUDE]: '.claude/scripts/session-start.js',
         [TOOLS.CODEX]: '.codex/hooks.json',
         [TOOLS.KIMI]: '.kimi/kimi-config.json',
         [TOOLS.DEEPSEEK]: '.deepseek/deepseek-config.json',
@@ -73,7 +74,11 @@ function getToolConfig(harnessDir, tool) {
 
     const configPath = path.join(harnessDir, configMap[tool] || '');
     if (fs.existsSync(configPath)) {
-        return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        try {
+            return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } catch (e) {
+            return null; // Invalid JSON → treat as no config rather than crashing
+        }
     }
     return null;
 }

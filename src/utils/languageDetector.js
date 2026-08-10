@@ -14,6 +14,15 @@ const path = require('path');
  * 4. Allow user to select or auto-pick the highest confidence
  */
 
+const IGNORED_DIRS = new Set([
+    'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out', 'target',
+    '.next', '.nuxt', '.turbo', '.cache', 'coverage', 'vendor', '.harness',
+    '.obsidian', '.claude', '.codex', '.kimi', '.deepseek', '.qwen', '.opencode',
+    '.vscode', '.github', '.idea', 'Pods', '.gradle', '__pycache__', '.venv',
+    'venv', '.tox', '.pytest_cache', '.ruff_cache', '.mypy_cache', '.terraform',
+    '.serverless', 'tmp', 'temp'
+]);
+
 const LANGUAGE_SIGNATURES = {
     typescript: {
         files: ['tsconfig.json', 'package.json'],
@@ -284,6 +293,10 @@ function scanDirectory(dirPath, maxDepth = 0, currentDepth = 0) {
                     }
                 }
             } else if (entry.isDirectory() && currentDepth < maxDepth) {
+                // Skip build/vendor/dependency directories — they pollute detection
+                if (IGNORED_DIRS.has(entry.name)) {
+                    continue;
+                }
                 // Recurse into subdirectories
                 const subScores = scanDirectory(
                     path.join(dirPath, entry.name), 
@@ -307,6 +320,36 @@ function scanDirectory(dirPath, maxDepth = 0, currentDepth = 0) {
 }
 
 /**
+ * Scan only the subdirectories of a root (used for the deep pass).
+ * Root files are NOT re-counted here to avoid double scoring.
+ */
+function scanSubdirs(rootPath, maxDepth) {
+    const scores = {};
+    const locations = {};
+    for (const lang of Object.keys(LANGUAGE_SIGNATURES)) {
+        scores[lang] = 0;
+        locations[lang] = [];
+    }
+
+    let entries;
+    try {
+        entries = fs.readdirSync(rootPath, { withFileTypes: true });
+    } catch (e) {
+        return { scores, locations };
+    }
+
+    for (const entry of entries) {
+        if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name)) continue;
+        const sub = scanDirectory(path.join(rootPath, entry.name), maxDepth, 1);
+        for (const lang of Object.keys(LANGUAGE_SIGNATURES)) {
+            scores[lang] += sub.scores[lang] || 0;
+            if (sub.locations[lang]) locations[lang].push(...sub.locations[lang]);
+        }
+    }
+    return { scores, locations };
+}
+
+/**
  * Detect all languages in a project
  */
 function detectLanguages(cwd, options = {}) {
@@ -315,10 +358,10 @@ function detectLanguages(cwd, options = {}) {
     // Phase 1: Root scan (fast)
     const rootScan = scanDirectory(cwd, 0, 0);
 
-    // Phase 2: Deep scan if needed
+    // Phase 2: Deep scan if needed — only subdirectories (root already scored)
     let deepScan = { scores: {}, locations: {} };
     if (deep) {
-        deepScan = scanDirectory(cwd, maxDepth, 0);
+        deepScan = scanSubdirs(cwd, maxDepth);
     }
 
     // Merge scores

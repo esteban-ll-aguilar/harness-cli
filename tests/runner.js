@@ -41,7 +41,11 @@ function assertFalse(value, msg) {
 
 // Load modules
 const { detectLanguages, getLanguageConfig } = require('../src/utils/languageDetector.js');
-const { slugify, timestamp, nextSpecId } = require('../src/utils/fileUtils.js');
+const { slugify, timestamp, nextSpecId, listFiles } = require('../src/utils/fileUtils.js');
+const { tokenize, buildIndex, search } = require('../src/utils/retrieval.js');
+const { getToolConfig } = require('../src/utils/aiAdapter.js');
+const { parseToolsFlag, writeToolConfigs } = require('../src/utils/toolSetup.js');
+const { STAGES } = require('../src/commands/advance.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -158,6 +162,139 @@ test('nextSpecId increments correctly', () => {
     fs.mkdirSync(path.join(tmpDir, '.harness', 'specs', '002-payment'));
     const id = nextSpecId(tmpDir);
     assertEqual(id, '003', 'Should increment to 003');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Language Detector — ignores vendored/build dirs
+// ============================================================
+console.log('\n📦 Language Detector (ignores)');
+
+test('does not detect Python inside node_modules', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'node_modules'));
+    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'fake.py'), 'import os\n');
+    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'package.json'), '{}');
+    const result = detectLanguages(tmpDir, { deep: true, maxDepth: 3 });
+    const hasPython = result.all.some(r => r.language === 'python');
+    assertFalse(hasPython, 'Should ignore node_modules');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Retrieval (BM25 RAG)
+// ============================================================
+console.log('\n📦 Retrieval (BM25 RAG)');
+
+test('tokenize strips markdown noise and stopwords', () => {
+    const tokens = tokenize('The system SHALL generate a magic-link token when the user requests auth!');
+    assertTrue(tokens.includes('system'), 'Should keep content words');
+    assertTrue(tokens.includes('token'), 'Should keep token');
+    assertFalse(tokens.includes('the'), 'Should drop stopwords');
+    assertFalse(tokens.includes('a'), 'Should drop stopwords');
+});
+
+test('buildIndex + search ranks the relevant document first', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'brain', 'auth.md'),
+        'The authentication module issues short-lived access tokens and refresh tokens. Rate limiting protects the auth endpoint.');
+    fs.writeFileSync(path.join(tmpDir, 'brain', 'billing.md'),
+        'The billing module handles invoices, payments and refunds. Stripe webhooks update the ledger.');
+
+    const index = buildIndex(tmpDir);
+    assertEqual(index.numDocs, 2, 'Should index 2 docs');
+
+    const results = search(index, tmpDir, 'authentication token', 2);
+    assertTrue(results.length > 0, 'Should return matches');
+    assertEqual(results[0].rel, 'brain/auth.md', 'Auth doc should rank first for auth query');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('index fingerprint changes when a file changes', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'brain', 'note.md'), 'v1 content');
+    const fp1 = require('../src/utils/retrieval.js').fingerprint(tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'brain', 'note.md'), 'v2 content changed');
+    const fp2 = require('../src/utils/retrieval.js').fingerprint(tmpDir);
+    assertTrue(fp1 !== fp2, 'Fingerprint should change on edit');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// AI Adapter
+// ============================================================
+console.log('\n📦 AI Adapter');
+
+test('getToolConfig does not crash on non-JSON hook scripts', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, '.claude', 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.claude', 'scripts', 'session-start.js'), 'console.log("hi");');
+    const result = getToolConfig(tmpDir, 'claude');
+    assertEqual(result, null, 'Should return null instead of crashing');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('getToolConfig parses valid JSON configs', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, '.opencode'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.opencode', 'opencode-config.json'), JSON.stringify({ tool: 'opencode' }));
+    const result = getToolConfig(tmpDir, 'opencode');
+    assertEqual(result.tool, 'opencode', 'Should parse JSON config');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Lifecycle
+// ============================================================
+console.log('\n📦 Spec Lifecycle');
+
+test('advance STAGES follow the 6-agent workflow', () => {
+    assertEqual(STAGES.join(' → '), 'interviewer → architect → tester → coder → reviewer → guardian');
+});
+
+// ============================================================
+// Tool setup (init AI tool selection)
+// ============================================================
+console.log('\n🔌 Tool Setup');
+
+test('parseToolsFlag filters to known tool ids', () => {
+    assertEqual(parseToolsFlag('claude,opencode').join(','), 'claude,opencode');
+    assertEqual(parseToolsFlag('Claude, BOGUS, codex').join(','), 'claude,codex');
+    assertEqual(parseToolsFlag('bogus'), null, 'Unknown-only flag should return null');
+    assertEqual(parseToolsFlag(''), null, 'Empty flag should return null');
+});
+
+test('writeToolConfigs writes real per-tool config files', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    writeToolConfigs(tmpDir, ['claude', 'opencode', 'codex', 'cursor']);
+
+    const mcp = JSON.parse(fs.readFileSync(path.join(tmpDir, '.mcp.json'), 'utf8'));
+    assertEqual(mcp.mcpServers.harness.command, 'harness-mcp', '.mcp.json should register harness MCP');
+
+    const opencode = JSON.parse(fs.readFileSync(path.join(tmpDir, 'opencode.json'), 'utf8'));
+    assertEqual(opencode.mcp.harness.command, 'harness-mcp', 'opencode.json should register harness MCP');
+    assertTrue(opencode.instructions.includes('.harness/brain/AGENTS.md'), 'opencode.json should reference AGENTS.md');
+
+    const toml = fs.readFileSync(path.join(tmpDir, '.codex', 'config.toml'), 'utf8');
+    assertTrue(toml.includes('mcp_servers.harness'), 'Codex config.toml should register harness MCP');
+
+    const cursorMcp = fs.readFileSync(path.join(tmpDir, '.cursor', 'mcp.json'), 'utf8');
+    assertTrue(cursorMcp.includes('harness-mcp'), 'Cursor mcp.json should register harness MCP');
+
+    // Unselected tools must NOT be written
+    assertTrue(!fs.existsSync(path.join(tmpDir, 'opencode.json.other')), 'sanity');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('writeToolConfigs merges into existing opencode.json', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmpDir, 'opencode.json'), JSON.stringify({ theme: 'dark' }));
+    writeToolConfigs(tmpDir, ['opencode']);
+    const merged = JSON.parse(fs.readFileSync(path.join(tmpDir, 'opencode.json'), 'utf8'));
+    assertEqual(merged.theme, 'dark', 'Existing keys should be preserved');
+    assertEqual(merged.mcp.harness.command, 'harness-mcp', 'MCP should be added to existing file');
     fs.rmSync(tmpDir, { recursive: true });
 });
 

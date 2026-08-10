@@ -6,6 +6,11 @@ const { status } = require('./commands/status.js');
 const { review } = require('./commands/review.js');
 const { interview } = require('./commands/interview.js');
 const { spec } = require('./commands/spec.js');
+const { memory } = require('./commands/memory.js');
+const { agent } = require('./commands/agent.js');
+const { rules } = require('./commands/rules.js');
+const { context } = require('./commands/context.js');
+const { advance } = require('./commands/advance.js');
 const { showHelp, showVersion } = require('./utils/help.js');
 
 function runCLI(args, ctx) {
@@ -24,13 +29,28 @@ function runCLI(args, ctx) {
             status(ctx.cwd);
             break;
         case 'review':
-            review(ctx.cwd);
+            review(ctx.cwd, subArgs);
             break;
         case 'interview':
             interview(ctx.cwd);
             break;
         case 'spec':
             spec(ctx.cwd, subArgs);
+            break;
+        case 'memory':
+            memory(ctx.cwd, subArgs);
+            break;
+        case 'agent':
+            agent(ctx.cwd, subArgs);
+            break;
+        case 'rules':
+            rules(ctx.cwd, subArgs);
+            break;
+        case 'context':
+            context(ctx.cwd, subArgs);
+            break;
+        case 'advance':
+            advance(ctx.cwd, subArgs);
             break;
         case 'version':
         case '-v':

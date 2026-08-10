@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, loadHarnessRC } = require('../utils/fileUtils.js');
+const { getHarnessDir, loadHarnessRC, listFiles } = require('../utils/fileUtils.js');
 
 function status(cwd) {
     let rc;
@@ -24,17 +24,7 @@ function status(cwd) {
     const active = rc.activeSpecs || [];
     const completed = rc.completedSpecs || [];
 
-    const countFiles = (dir) => {
-        if (!fs.existsSync(dir)) return 0;
-        try {
-            return fs.readdirSync(dir, { recursive: true }).filter(f => {
-                const fp = path.join(dir, f);
-                return fs.existsSync(fp) && !fs.statSync(fp).isDirectory();
-            }).length;
-        } catch (e) {
-            return 0;
-        }
-    };
+    const countFiles = (dir) => listFiles(dir).length;
 
     const brainFiles = countFiles(path.join(harnessDir, 'brain'));
     const memoryFiles = countFiles(path.join(harnessDir, 'memory'));

@@ -4,20 +4,25 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
-**Version:** 1.0.0 | **Status:** Production Ready ✅ | **Tests:** 12/12 passing ✅
+**Version:** 1.1.0 | **Status:** Production Ready ✅ | **Tests:** 19/19 passing ✅
 
 ## ✨ Features
 
 - **🔍 Auto-Language Detection** — Detects TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Dart/Flutter
-- **📦 Monorepo Support** — Scans up to 3 levels deep, detects multiple languages, interactive selection
+- **📦 Monorepo Support** — Scans up to 3 levels deep (skips `node_modules`/build dirs), interactive selection
+- **🧠 RAG Memory (BM25)** — Real retrieval over the vault, zero dependencies, `harness memory search`
+- **🗂️ Obsidian Vault** — `.harness/` opens as a vault, with auto-generated Map of Content
+- **🔌 MCP Server** — `harness-mcp` exposes 13 tools to ANY MCP-compatible agent
+- **🤖 Self-Generating Agents** — 6 built-in agents auto-created at init + `harness agent new`
+- **📜 `harness rules`** — Project rules synced into AGENTS.md and enforced by the Guardian
+- **📌 Spec Lifecycle** — `harness advance` walks each spec through the 6 agents → done
+- **📦 Context Bundles** — `harness context` dumps the full optimized prompt for any AI tool
 - **6-Agent Workflow**: Interviewer → Architect → Tester → Coder → Reviewer → Guardian
 - **AI Agnostic**: Works with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, Cursor, Copilot
 - **Tiered Memory**: Optimizes token usage without degrading results
-- **Obsidian Vault**: Shared persistent memory across all AI tools
 - **EARS Notation**: Unambiguous, parseable requirements
 - **CI/CD Gates**: Automated quality checks before production
-- **Robust Error Handling**: Graceful failures with cleanup
-- **Self-Tested**: 12 automated tests covering all core functionality
+- **Self-Tested**: 19 automated tests covering core functionality
 
 ## 🚀 Quick Start
 
@@ -27,7 +32,9 @@ npm install -g @harness/sdd-bdd-tdd
 
 # Initialize in your project (auto-detects language!)
 cd my-project
-harness init
+harness init        # interactive: pick your AI tools (␣ toggle, Enter confirm)
+harness init --auto # skip prompts, enable everything
+harness init --tools=claude,opencode # only the tools you use
 
 # Start requirement gathering
 harness interview
@@ -40,7 +47,59 @@ harness status
 
 # Run guardian review
 harness review
+
+# Advance a spec through the 6-agent lifecycle
+harness advance 001
+
+# Semantic search over the vault (RAG)
+harness memory search "auth token rate limiting"
+
+# Manage rules that always apply
+harness rules add "Every PR must include a test"
+harness rules list
+
+# Create your own agent
+harness agent new security-auditor
+
+# Dump full context for any AI tool
+harness context --spec=001
 ```
+
+## 🔌 AI Tool Selection
+
+`harness init` asks which AI tool(s) you use (multi-select with `␣` / `↑↓` / `Enter`).
+Based on your choice it writes the **real config files at the project root** so the
+tool actually picks up the harness:
+
+| Tool | Config written |
+|---|---|
+| Claude Code / Cursor / Kimi / Qwen / DeepSeek | `.mcp.json` (harness MCP server) |
+| OpenCode | `opencode.json` (mcp + instructions) |
+| Codex CLI | `.codex/config.toml` |
+| Cursor | `.cursor/mcp.json` |
+| Copilot | `AGENTS.md` (root, already created) |
+
+Non-interactive: `harness init --auto` (all tools) or `harness init --tools=claude,opencode`.
+
+## 🔌 MCP Server (any AI tool)
+
+Wire the harness into Claude Code, Codex, OpenCode, Cursor, Windsurf… as an MCP server:
+
+```json
+{
+  "mcpServers": {
+    "harness": {
+      "command": "harness-mcp"
+    }
+  }
+}
+```
+
+Exposes 13 tools: `harness_init`, `harness_new_change`, `harness_status`,
+`harness_review`, `harness_context`, `harness_memory_search`,
+`harness_agent_run`, `harness_agent_list`, `harness_rules_add`,
+`harness_rules_list`, `harness_advance`, and more — all zero-dependency
+(stdio + JSON-RPC 2.0).
 
 ## 🚀 Quick Start (Alternative)
 
@@ -107,20 +166,17 @@ harness new-change mobile-login --lang=dart # Uses Dart
 .harness/
 ├── brain/           # Persistent knowledge (git-tracked)
 │   ├── AGENTS.md              # Universal AI instructions
-│   ├── AGENTS_CLAUDE.md       # Claude Code specific
-│   ├── AGENTS_CODEX.md        # Codex CLI specific
-│   ├── AGENTS_KIMI.md         # Kimi specific
-│   ├── AGENTS_DEEPSEEK.md     # DeepSeek specific
-│   ├── AGENTS_QWEN.md         # Qwen specific
-│   ├── AGENTS_OPENCODE.md     # OpenCode specific
+│   ├── AGENTS_<TOOL>.md       # Per-tool instructions
 │   ├── constitution.md        # Immutable project rules
 │   ├── north-star.md          # Vision & goals
+│   ├── rules/                 # Project rules (harness rules)
 │   ├── decisions/             # ADRs
 │   ├── patterns/              # Architecture patterns
-│   ├── competencies/          # Agent scripts
+│   ├── competencies/          # Agent scripts (auto-generated)
 │   └── people/                # Stakeholder profiles
-├── memory/          # Session logs (NOT git-tracked)
-│   └── session-logs/          # Per-session transcripts
+├── memory/         # Session logs + Obsidian MOC (NOT git-tracked)
+│   ├── session-logs/
+│   └── obsidian/MOC.md
 ├── specs/           # SDD Specifications
 │   └── NNN-feature/
 │       ├── spec.md      # EARS requirements
@@ -129,6 +185,7 @@ harness new-change mobile-login --lang=dart # Uses Dart
 │       ├── features/    # BDD .feature files
 │       ├── tests/       # TDD test stubs (language-specific!)
 │       └── docs/        # Additional docs
+├── .index/          # BM25 retrieval index (derived, gitignored)
 ├── tests/           # Global test utilities
 │   ├── unit/
 │   ├── integration/
@@ -139,6 +196,7 @@ harness new-change mobile-login --lang=dart # Uses Dart
 ├── .kimi/           # Kimi config
 ├── .deepseek/       # DeepSeek config
 ├── .qwen/           # Qwen config
+├── .opencode/       # OpenCode config + MCP
 ├── .vscode/         # VS Code settings
 ├── .github/         # GitHub Actions CI
 └── scripts/         # Automation scripts
@@ -155,6 +213,12 @@ Any AI tool can recognize these commands:
 | `/harness-review` | Run guardian gates |
 | `/harness-interview` | Start requirement gathering |
 | `/harness-spec <name>` | Generate spec template |
+| `/harness-advance <id>` | Move a spec to the next agent stage |
+| `/harness-memory <query>` | Semantic search over the vault |
+| `/harness-rules` | Show rules that always apply |
+| `/harness-context` | Full optimized context bundle |
+
+> Prefer the MCP server for a native experience: `harness-mcp`.
 
 ## 📖 Documentation
 
@@ -178,14 +242,42 @@ Each agent has:
 
 ## 🧠 Memory & Context
 
+The harness memory is Markdown in `brain/`, `specs/` and `memory/`. Open `.harness/`
+as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian/MOC.md`).
+
 ### Tiered Loading (Token Optimization)
 
 | Tier | Content | Tokens | When |
 |------|---------|--------|------|
 | **ALWAYS** | AGENTS.md + constitution.md + north-star.md | ~500 | Every session |
-| **ON_DEMAND** | Search brain/ for relevant context | Variable | When needed |
+| **ON_DEMAND** | BM25 retrieval over the vault | Variable | `harness memory search "<q>"` |
 | **TRIGGER** | Load spec.md when file changes | ~200 | After tool use |
 | **RARE** | Full vault scan | Variable | Explicit request |
+
+### Retrieval (RAG)
+
+- Zero-dependency BM25 (Okapi) index in `.harness/.index/`, rebuilt automatically when files change.
+- `harness memory search "auth token"` returns ranked docs with snippets.
+- `harness memory stats` shows corpus size; `harness memory index` forces a rebuild.
+- The tiered loader (`tokenOptimizer.js`) uses the same index for ON_DEMAND context.
+
+### Agents
+
+- 6 built-in agents are auto-registered with competency scripts at `harness init`.
+- `harness agent new <name> --goal=... --instructions=...` creates custom agents.
+- `harness agent run <agent> [specId]` builds a ready-to-paste context prompt.
+- `harness agent ensure` regenerates missing scripts.
+
+### Rules
+
+- `harness rules add "Every PR must include a test" --severity=must --tag=testing`
+- Rules are synced into `AGENTS.md` (brain + root) and verified by `harness review`.
+
+### Lifecycle
+
+- `harness advance <specId>` walks a spec: interviewer → architect → tester → coder → reviewer → guardian → done
+- `harness advance <specId> --to=coder` jumps; `--back` steps backward.
+- `harness status` shows per-agent state; completed specs move to `.harnessrc.completedSpecs`.
 
 ## 🛡️ Error Handling
 
@@ -208,13 +300,23 @@ npm test
 #   ✅ detects monorepo with multiple languages
 #   ✅ getLanguageConfig returns correct config
 #   ✅ getLanguageConfig falls back to TypeScript for unknown
+#   ✅ does not detect Python inside node_modules
 # 📦 File Utils
 #   ✅ slugify converts to kebab-case
 #   ✅ slugify handles special characters
 #   ✅ timestamp returns valid format
 #   ✅ nextSpecId returns 001 for empty project
 #   ✅ nextSpecId increments correctly
-# Results: 12 passed, 0 failed
+# 📦 Retrieval (BM25 RAG)
+#   ✅ tokenize strips markdown noise and stopwords
+#   ✅ buildIndex + search ranks the relevant document first
+#   ✅ index fingerprint changes when a file changes
+# 📦 AI Adapter
+#   ✅ getToolConfig does not crash on non-JSON hook scripts
+#   ✅ getToolConfig parses valid JSON configs
+# 📦 Spec Lifecycle
+#   ✅ advance STAGES follow the 6-agent workflow
+# Results: 19 passed, 0 failed
 ```
 
 ## 📄 License
