@@ -38,10 +38,13 @@ jobs:
         with:
           node-version: 24
 
+      - name: Upgrade npm (OIDC exchange needs >= 11.5.1; Node 24 bundles older)
+        run: npm install -g npm@latest
+
       - name: Check npm version (Trusted Publishing needs >= 11.5.1)
         run: |
           npm --version
-          test "$(npm --version | cut -d. -f1)" -ge 11
+          node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number); const [a,b,c]=v; process.exit((a<11||(a===11&&(b<5||(b===5&&c<1))))?1:0);"
 
       - name: Run tests
         run: npm test
@@ -56,7 +59,7 @@ jobs:
           npm version patch -m "chore(release): v%s [skip-ci]"
 
       - name: Publish to npm (Trusted Publishing, no token)
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --loglevel=verbose
 
       - name: Push version bump and tag
         run: git push --follow-tags
