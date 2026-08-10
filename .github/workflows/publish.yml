@@ -36,10 +36,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
-      - name: Upgrade npm (Trusted Publishing needs >= 11.5.1)
-        run: npm install -g npm@latest
+      - name: Check npm version (Trusted Publishing needs >= 11.5.1)
+        run: |
+          npm --version
+          test "$(npm --version | cut -d. -f1)" -ge 11
 
       - name: Run tests
         run: npm test
