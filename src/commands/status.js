@@ -75,6 +75,11 @@ function status(cwd) {
         for (const spec of active) {
             const lang = spec.language ? `(${spec.language})` : '';
             console.log(`   ${spec.id} — ${spec.name} ${lang} [${spec.status}]`);
+            const agents = spec.agents || {};
+            const stages = Object.keys(agents).length ? Object.entries(agents).map(([s, v]) =>
+                v === 'done' ? `✅${s}` : v === 'omitted' ? `⏭️${s}` : `⏳${s}`
+            ).join(' ') : '';
+            if (stages) console.log(`      ${stages}`);
         }
     }
 

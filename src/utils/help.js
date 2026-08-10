@@ -14,9 +14,10 @@ function showHelp() {
 ║  harness new-change <name> [--lang=]  Create SDD-BDD-TDD flow        ║
 ║  harness interview                    Interactive requirement session║
 ║  harness spec <name>                  Spec template only             ║
-║  harness status                       Project health & progress      ║
-║  harness review                       Guardian quality gates         ║
-║  harness advance <id> [--to=<agent>]  Walk spec through 6 agents     ║
+║  harness status                       Project health & progress        ║
+║  harness review [--skip-tests]        Guardian gates + REAL test run   ║
+║  harness test <id> [--cmd=] [--skip]  Execute the spec tests           ║
+║  harness advance <id> [--to=<agent>]  Walk spec through 6 agents       ║
 ║  harness agent list|new|run <name>    Manage & run AI agents         ║
 ║  harness rules list|add|remove        Project rules (synced AGENTS)  ║
 ║  harness memory search|index|stats    RAG over the .harness vault    ║
@@ -29,6 +30,7 @@ function showHelp() {
 ║                                                                      ║
 ║  MONOREPO: init auto-detects all languages; --lang=<lang> per change ║
 ║  MEMORY:  Obsidian vault (.harness/) + BM25 retrieval (zero deps)    ║
+║  FLOW:    stages followed by default; --to= records omissions in logs ║
 ║                                                                      ║
 ║  WORKFLOW: Interview → Spec → Plan → Tasks → BDD → TDD → Review     ║
 ║                                                                      ║

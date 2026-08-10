@@ -1,10 +1,15 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, loadHarnessRC, listFiles } = require('../utils/fileUtils.js');
+const { getHarnessDir, loadHarnessRC, listFiles, timestamp } = require('../utils/fileUtils.js');
+const { runTests, findSpecDir } = require('../utils/testRunner.js');
+const { getLanguageConfig } = require('../utils/languageDetector.js');
 
 function review(cwd, args) {
     const specId = args[0];
     const harnessDir = getHarnessDir(cwd);
+    const skipTests = args.includes('--skip-tests');
+    const cmdFlag = args.find(a => a.startsWith('--cmd='));
+    const cmd = cmdFlag ? cmdFlag.split('=').slice(1).join('=') : null;
     let rc;
 
     try {
@@ -69,23 +74,36 @@ function review(cwd, args) {
         checks.push({ name: 'Specs complete (0/0)', status: 'WARN' });
     }
 
-    // Check 4: BDD features exist
+    // Check 4: BDD features have REAL scenarios (not template placeholders)
     if (fs.existsSync(specsDir)) {
         try {
             const specs = fs.readdirSync(specsDir).filter(d => /^\d{3}-/.test(d));
-            let featureChecks = 0;
+            const active = specId ? specs.filter(d => d.startsWith(specId)) : specs;
+            let realCount = 0, placeholderCount = 0, checked = 0;
             for (const spec of specs) {
                 const featuresDir = path.join(specsDir, spec, 'features');
-                if (fs.existsSync(featuresDir) && fs.readdirSync(featuresDir).some(f => f.endsWith('.feature'))) {
-                    featureChecks++;
+                if (!fs.existsSync(featuresDir)) continue;
+                for (const feat of fs.readdirSync(featuresDir).filter(f => f.endsWith('.feature'))) {
+                    const content = fs.readFileSync(path.join(featuresDir, feat), 'utf8');
+                    const scenarios = content.match(/^\s*(?:Scenario Outline|Scenario):\s+(.+)$/gm) || [];
+                    checked++;
+                    for (const s of scenarios) {
+                        if (/\[/.test(s)) placeholderCount++;
+                        else realCount++;
+                    }
                 }
             }
+            const total = realCount + placeholderCount;
+            const status = total === 0 ? 'WARN'
+                : placeholderCount === 0 ? 'PASS'
+                : 'WARN';
             checks.push({
-                name: `BDD features (${featureChecks}/${specs.length})`,
-                status: featureChecks === specs.length && specs.length > 0 ? 'PASS' : 'WARN'
+                name: `BDD scenarios (${realCount} real / ${total}${placeholderCount ? `, ${placeholderCount} placeholder` : ''})`,
+                status,
+                hint: placeholderCount > 0 ? `Replace [bracketed] placeholders in ${active.length} spec(s) with real Gherkin. Run: harness agent run tester ${specId || '<spec>'}` : ''
             });
         } catch (e) {
-            checks.push({ name: 'BDD features', status: 'ERROR' });
+            checks.push({ name: 'BDD scenarios', status: 'ERROR' });
         }
     }
 
@@ -106,7 +124,11 @@ function review(cwd, args) {
         }
     }
 
-    // Check 6: ADRs for decisions
+    // Check 6: Tests actually RUN and PASS (the real TDD gate)
+    const runCheck = runTestsGate(cwd, harnessDir, rc, specId, { skipTests, cmd });
+    checks.push(runCheck);
+
+    // Check 7: ADRs for decisions
     const decisionsDir = path.join(harnessDir, 'brain', 'decisions');
     if (fs.existsSync(decisionsDir)) {
         try {
@@ -120,7 +142,7 @@ function review(cwd, args) {
         }
     }
 
-    // Check 7: Project rules synced into AGENTS.md
+    // Check 8: Project rules synced into AGENTS.md
     const projectRules = (rc.rules || []).filter(r => r.enabled !== false);
     if (projectRules.length > 0) {
         let synced = 0;
@@ -141,6 +163,7 @@ function review(cwd, args) {
     for (const check of checks) {
         const icon = check.status === 'PASS' ? '✅' : check.status === 'FAIL' ? '❌' : check.status === 'ERROR' ? '💥' : '⚠️';
         console.log(`  ${icon} ${check.name}`);
+        if (check.hint) console.log(`      ↳ ${check.hint}`);
     }
 
     const failures = checks.filter(c => c.status === 'FAIL').length;
@@ -157,6 +180,68 @@ function review(cwd, args) {
         console.log('🛠️  Fix failures/errors before proceeding to production.');
         process.exit(1);
     }
+}
+
+function runTestsGate(cwd, harnessDir, rc, specId, { skipTests, cmd }) {
+    const specs = (rc.activeSpecs || []).filter(s => !specId || s.id === specId);
+    if (specs.length === 0) {
+        return { name: 'Tests executed', status: 'WARN', hint: 'No active specs to test.' };
+    }
+
+    if (skipTests) {
+        logDecision(cwd, harnessDir, specs, 'tests-skipped',
+            `Tests intentionally omitted from review${specId ? ` for spec ${specId}` : ''} (--skip-tests).`);
+        return { name: 'Tests executed (skipped)', status: 'WARN', hint: 'Omission registered in memory/session-logs/.' };
+    }
+
+    let runnable = 0, passed = 0, failed = 0, notRunnable = 0;
+    const notes = [];
+    for (const spec of specs) {
+        const specDir = findSpecDir(harnessDir, spec.id);
+        if (!specDir) { notRunnable++; notes.push(`${spec.id}: spec dir missing`); continue; }
+        const langConfig = getLanguageConfig(spec.language || rc.language?.detected || 'typescript');
+        const result = runTests(cwd, specDir, langConfig, { cmd });
+        if (!result.runnable) { notRunnable++; notes.push(`${spec.id}: ${result.reason}`); continue; }
+        runnable++;
+        if (result.ok) { passed++; notes.push(`${spec.id}: ${result.passed} passed`); }
+        else { failed++; notes.push(`${spec.id}: ${result.failed} failed`); }
+    }
+
+    let status;
+    if (failed > 0) {
+        status = 'FAIL';
+        logDecision(cwd, harnessDir, specs, 'tests-failed', `Review blocked: ${notes.join('; ')}.`);
+    } else if (notRunnable > 0 && runnable === 0) {
+        status = 'WARN';
+    } else {
+        status = 'PASS';
+    }
+
+    return {
+        name: `Tests pass (executed) [${notes.join(', ') || 'no specs'}]`,
+        status,
+        hint: status === 'FAIL' ? 'Fix failing tests, or omit them explicitly with review --skip-tests.' :
+              notRunnable > 0 ? 'Some suites were not runnable in this environment. Use --cmd= to wire a runner, or --skip-tests to omit.' :
+              specs.length > 1 ? 'All active specs were executed.' : ''
+    };
+}
+
+function logDecision(cwd, harnessDir, specs, event, reason) {
+    const log = `---
+date: ${timestamp()}
+agent: harness-cli
+event: ${event}
+spec: ${specs.map(s => s.id).join(',')}
+---
+
+# Review decision — ${event}
+
+${reason}
+`;
+    fs.appendFileSync(
+        path.join(harnessDir, 'memory', 'session-logs', `${event}-${Date.now()}.md`),
+        log
+    );
 }
 
 module.exports = { review };

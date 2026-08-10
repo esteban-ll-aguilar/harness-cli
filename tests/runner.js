@@ -45,7 +45,8 @@ const { slugify, timestamp, nextSpecId, listFiles } = require('../src/utils/file
 const { tokenize, buildIndex, search } = require('../src/utils/retrieval.js');
 const { getToolConfig } = require('../src/utils/aiAdapter.js');
 const { parseToolsFlag, writeToolConfigs } = require('../src/utils/toolSetup.js');
-const { STAGES } = require('../src/commands/advance.js');
+const { STAGES, countBddScenarios } = require('../src/commands/advance.js');
+const { parseOutput, specHasOwnConfig } = require('../src/utils/testRunner.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -295,6 +296,78 @@ test('writeToolConfigs merges into existing opencode.json', () => {
     const merged = JSON.parse(fs.readFileSync(path.join(tmpDir, 'opencode.json'), 'utf8'));
     assertEqual(merged.theme, 'dark', 'Existing keys should be preserved');
     assertEqual(merged.mcp.harness.command, 'harness-mcp', 'MCP should be added to existing file');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Test Runner (real test execution)
+// ============================================================
+console.log('\n🧪 Test Runner');
+
+test('parseOutput parses Jest summary', () => {
+    const r = parseOutput('Tests: 12 passed, 3 failed, 15 total');
+    assertEqual(r.passed, 12);
+    assertEqual(r.failed, 3);
+});
+
+test('parseOutput parses pytest summary', () => {
+    const r = parseOutput('====== 12 passed, 3 failed in 1.20s ======');
+    assertEqual(r.passed, 12);
+    assertEqual(r.failed, 3);
+});
+
+test('parseOutput parses cargo test summary', () => {
+    const r = parseOutput('test result: ok. 12 passed; 3 failed; 0 ignored');
+    assertEqual(r.passed, 12);
+    assertEqual(r.failed, 3);
+});
+
+test('parseOutput parses go test output', () => {
+    const ok = parseOutput('ok   example/pkg');
+    assertEqual(ok.failed, 0);
+    const fail = parseOutput('--- FAIL: TestAuth\nFAIL\n');
+    assertTrue(fail.failed >= 1, 'FAIL should register a failure');
+});
+
+test('parseOutput returns null for unknown formats', () => {
+    assertEqual(parseOutput('some random output'), null);
+});
+
+test('specHasOwnConfig detects build config in spec dir', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    assertFalse(specHasOwnConfig(tmpDir, 'typescript'), 'Empty dir should have no config');
+    fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}');
+    assertTrue(specHasOwnConfig(tmpDir, 'typescript'), 'package.json should be detected');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// BDD gate (real Gherkin scenarios)
+// ============================================================
+console.log('\n🐛 BDD Gate');
+
+test('countBddScenarios separates real from placeholder scenarios', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'features'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'features', 'auth.feature'), `
+Feature: Auth
+  Scenario: Successful [main action]
+    Given [precondition]
+    When I login
+    Then I should see the dashboard
+  Scenario: Successful login
+    Given valid credentials
+    When I login
+    Then I should see the dashboard
+  Scenario: [Alternative happy path]
+    Given [precondition]
+    When I logout
+    Then I should see the login screen
+`);
+    const { real, placeholder, files } = countBddScenarios(tmpDir);
+    assertEqual(real, 1, 'Only non-bracketed scenario names count as real');
+    assertEqual(placeholder, 2, 'Bracketed scenario names are placeholders');
+    assertEqual(files, 1);
     fs.rmSync(tmpDir, { recursive: true });
 });
 

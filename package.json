@@ -1,15 +1,16 @@
 {
-  "name": "@harness/sdd-bdd-tdd",
+  "name": "@harness/cli",
   "version": "1.1.0",
   "description": "Production-grade multi-agent harness for SDD-BDD-TDD software development. RAG memory (BM25), Obsidian vault, MCP server, agent auto-generation. Compatible with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, and any AI tool.",
   "main": "src/cli.js",
   "bin": {
-    "harness": "./bin/harness.js",
-    "harness-mcp": "./bin/harness-mcp.js"
+    "harness": "bin/harness.js",
+    "harness-mcp": "bin/harness-mcp.js"
   },
   "scripts": {
     "test": "node tests/runner.js",
-    "test:unit": "node tests/runner.js"
+    "test:unit": "node tests/runner.js",
+    "prepublishOnly": "node tests/runner.js"
   },
   "keywords": [
     "harness",
@@ -33,14 +34,29 @@
     "test-driven",
     "obsidian"
   ],
-  "author": "Esteban Leon Aguilar -- Harness Engineering",
+  "author": {
+    "name": "esteban-ll-aguilar",
+    "url": "https://github.com/esteban-ll-aguilar"
+  },
   "license": "MIT",
+  "homepage": "https://github.com/esteban-ll-aguilar/harness-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/esteban-ll-aguilar/harness-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/esteban-ll-aguilar/harness-cli/issues"
+  },
   "engines": {
     "node": ">=18.17.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "bin/",
     "src/",
+    "docs/",
     "README.md",
     "LICENSE"
   ]

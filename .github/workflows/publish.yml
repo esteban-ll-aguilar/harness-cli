@@ -1,0 +1,44 @@
+name: Publish
+
+# Auto-publishes a new patch version to npm on every merge to main.
+# The version-bump commit includes "[skip-ci]" so this workflow does not
+# re-trigger itself in a loop. CI (tests) runs separately for PRs.
+#
+# Setup required once in the repo:
+#   Settings → Secrets and variables → Actions → New repository secret
+#     Name: NPM_TOKEN
+#     Value: an npm access token (publish + read scope)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    if: "!contains(github.event.head_commit.message, '[skip-ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Run tests
+        run: npm test
+
+      - name: Bump patch version
+        run: npm version patch -m "chore(release): v%s [skip-ci]"
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push version bump and tag
+        run: git push --follow-tags

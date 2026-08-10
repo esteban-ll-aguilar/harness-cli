@@ -3,6 +3,7 @@ const path = require('path');
 const readline = require('readline');
 const { getHarnessDir, ensureDir, loadHarnessRC, writeHarnessRC, timestamp, slugify } = require('../utils/fileUtils.js');
 const { buildPrompt, TIERS } = require('../utils/tokenOptimizer.js');
+const { loadIndex, search } = require('../utils/retrieval.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -234,6 +235,23 @@ function runAgent(cwd, args) {
     // Base tiered context
     const { prompt: base } = buildPrompt(harnessDir, TIERS.ON_DEMAND, def.goal || name);
 
+    // Relevant memory from the RAG index (ADRs, rules, prior specs, session logs)
+    let memoryContext = '';
+    try {
+        const index = loadIndex(harnessDir, { rebuild: false });
+        if (index && index.numDocs > 0) {
+            const query = [def.goal, specId ? `spec ${specId}` : '', name].filter(Boolean).join(' ');
+            const hits = search(index, harnessDir, query, 4);
+            if (hits.length > 0) {
+                memoryContext = hits
+                    .map(h => `--- ${h.rel} ---\n${h.snippet}\n`)
+                    .join('\n');
+            }
+        }
+    } catch (e) {
+        memoryContext = '';
+    }
+
     // Spec context
     let specContext = '';
     if (specId) {
@@ -268,6 +286,7 @@ function runAgent(cwd, args) {
         script || '(none — follow the mandate)',
         '',
         specContext ? '## SPEC CONTEXT\n' + specContext : '',
+        memoryContext ? '## RELEVANT MEMORY (from the .harness vault)\n' + memoryContext : '',
         '## PROJECT CONTEXT (tiered)',
         base
     ].filter(s => s !== '').join('\n');
@@ -275,6 +294,7 @@ function runAgent(cwd, args) {
     const tokens = Math.ceil(prompt.length / 4);
     console.log(`🤖 AGENT PROMPT READY — ${name}${specId ? ' (spec ' + specId + ')' : ''}`);
     console.log(`   Tokens (est): ${tokens}`);
+    if (memoryContext) console.log(`   🧠 Relevant memory injected: ${(memoryContext.match(/^--- .+? ---/gm) || []).length} doc(s)`);
     console.log(`   Copy this prompt into your AI tool, or write it to a file:\n`);
     console.log('─'.repeat(60));
     console.log(prompt);

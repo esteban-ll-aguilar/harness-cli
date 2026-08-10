@@ -11,6 +11,7 @@ const { agent } = require('./commands/agent.js');
 const { rules } = require('./commands/rules.js');
 const { context } = require('./commands/context.js');
 const { advance } = require('./commands/advance.js');
+const { testCmd } = require('./commands/test.js');
 const { showHelp, showVersion } = require('./utils/help.js');
 
 function runCLI(args, ctx) {
@@ -51,6 +52,9 @@ function runCLI(args, ctx) {
             break;
         case 'advance':
             advance(ctx.cwd, subArgs);
+            break;
+        case 'test':
+            testCmd(ctx.cwd, subArgs);
             break;
         case 'version':
         case '-v':

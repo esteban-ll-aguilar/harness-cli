@@ -8,7 +8,8 @@
  *
  *   Tools: harness_init, harness_new_change, harness_status,
  *          harness_review, harness_context, harness_memory_search,
- *          harness_agent_run, harness_rules_add, harness_advance
+ *          harness_agent_run, harness_rules_add, harness_advance,
+ *          harness_test
  */
 
 const path = require('path');
@@ -29,7 +30,8 @@ const TOOL_NAME_TO_COMMAND = {
     harness_agent_list: ['agent', 'list'],
     harness_rules_add: ['rules', 'add'],
     harness_rules_list: ['rules', 'list'],
-    harness_advance: ['advance']
+    harness_advance: ['advance'],
+    harness_test: ['test']
 };
 
 const TOOLS = [
@@ -57,8 +59,14 @@ const TOOLS = [
     },
     {
         name: 'harness_review',
-        description: 'Run the Guardian review gates (constitution, specs, BDD, tests, ADRs).',
-        inputSchema: { type: 'object', properties: {}, required: [] }
+        description: 'Run the Guardian review gates. Now executes the actual tests (pass/fail), checks real BDD scenarios. Pass skipTests=true to record an explicit omission.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                skipTests: { type: 'boolean', description: 'Record an explicit "tests not applicable" omission instead of running them' }
+            },
+            required: []
+        }
     },
     {
         name: 'harness_spec',
@@ -132,12 +140,25 @@ const TOOLS = [
     },
     {
         name: 'harness_advance',
-        description: 'Advance a spec through the 6-agent lifecycle.',
+        description: 'Advance a spec through the 6-agent lifecycle. Jumping with to= records intermediate stages as omitted.',
         inputSchema: {
             type: 'object',
             properties: {
                 id: { type: 'string', description: 'Spec id, e.g. 001' },
                 to: { type: 'string', description: 'Jump to a stage: interviewer..guardian' }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'harness_test',
+        description: 'Run the spec tests for real. Detects the language runner, reports pass/fail. Pass skip=true to record an explicit "tests not applicable" decision.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string', description: 'Spec id, e.g. 001' },
+                skip: { type: 'boolean', description: 'Record an explicit omission instead of running' },
+                cmd: { type: 'string', description: 'Override the test command (run from the spec dir)' }
             },
             required: ['id']
         }
@@ -241,6 +262,12 @@ rl.on('line', (line) => {
         } else if (tool === 'harness_advance') {
             args.push(input.id);
             if (input.to) args.push(`--to=${input.to}`);
+        } else if (tool === 'harness_test') {
+            args.push(input.id);
+            if (input.skip) args.push('--skip');
+            if (input.cmd) args.push(`--cmd=${input.cmd}`);
+        } else if (tool === 'harness_review') {
+            if (input.skipTests) args.push('--skip-tests');
         }
 
         const { output, exitCode } = runInMemory(args);

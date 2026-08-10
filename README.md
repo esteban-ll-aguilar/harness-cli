@@ -28,7 +28,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 
 ```bash
 # Install globally
-npm install -g @harness/sdd-bdd-tdd
+npm install -g @harness/cli
 
 # Initialize in your project (auto-detects language!)
 cd my-project
@@ -45,11 +45,16 @@ harness new-change user-authentication
 # Check status
 harness status
 
-# Run guardian review
+# Run guardian review (now executes the real tests!)
 harness review
 
 # Advance a spec through the 6-agent lifecycle
 harness advance 001
+
+# Actually run a spec's tests (real pass/fail, no fake gates)
+harness test 001
+harness test 001 --cmd="npm test"   # wire your own runner
+harness test 001 --skip             # record an explicit "not applicable" decision
 
 # Semantic search over the vault (RAG)
 harness memory search "auth token rate limiting"
@@ -110,7 +115,7 @@ cd harness-cli
 
 # 2. Empaqueta e instala globalmente
 npm pack                    # Genera harness-sdd-bdd-tdd-1.0.0.tgz
-npm install -g ./harness-sdd-bdd-tdd-1.0.0.tgz
+npm install -g ./harness-cli-1.1.0.tgz
 
 # 3. Inicializa en tu proyecto
 cd tu-proyecto
@@ -277,6 +282,32 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 
 - `harness advance <specId>` walks a spec: interviewer → architect → tester → coder → reviewer → guardian → done
 - `harness advance <specId> --to=coder` jumps; `--back` steps backward.
+
+### Flow integrity & conscious omission
+
+The flow is followed **by default**, but skipping is allowed when it makes sense
+(e.g. no interview needed, tests not applicable). The difference from a silent
+backdoor: every skipped stage is marked **`⏭️ omitted`** and **logged** in
+`memory/session-logs/` with a timestamp and target, so the decision is auditable.
+`done` means "an agent actually did it"; `omitted` means "explicitly skipped".
+
+- `advance 001 --to=coder` → interviewer stays `done`, the rest become `omitted` + log.
+- `advance` then skips omitted stages automatically.
+
+### Real TDD gate (no fake gates)
+
+`harness review` and `harness test <specId>` **execute** the spec's tests instead
+of just checking that a test file exists:
+
+- Auto-detects the language runner (`npm test`, `pytest`, `go test`, `cargo test`, …).
+- Parses Jest / Vitest / pytest / Go / Cargo output for real pass/fail counts.
+- `harness test <id> --cmd="npm test"` wires a custom runner (runs from the spec dir).
+- If the framework isn't installed it reports **WARN "not runnable"** — never a fake pass.
+- `--skip` / `--skip-tests` records an explicit "tests not applicable" omission in the logs.
+
+`harness review` also checks that BDD features contain **real** Gherkin scenarios
+(no `[bracketed]` template placeholders) and, when the tester stage completes,
+`harness advance` prompts to complete them interactively.
 - `harness status` shows per-agent state; completed specs move to `.harnessrc.completedSpecs`.
 
 ## 🛡️ Error Handling
@@ -316,7 +347,14 @@ npm test
 #   ✅ getToolConfig parses valid JSON configs
 # 📦 Spec Lifecycle
 #   ✅ advance STAGES follow the 6-agent workflow
-# Results: 19 passed, 0 failed
+# 🔌 Tool Setup
+#   ✅ parseToolsFlag filters to known tool ids
+#   ✅ writeToolConfigs writes real per-tool config files
+# 🧪 Test Runner
+#   ✅ parseOutput parses Jest/pytest/cargo/go summaries
+# 🐛 BDD Gate
+#   ✅ countBddScenarios separates real from placeholder scenarios
+# Results: 29 passed, 0 failed
 ```
 
 ## 📄 License

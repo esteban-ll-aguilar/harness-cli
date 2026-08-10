@@ -1,15 +1,26 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, loadHarnessRC, writeHarnessRC, timestamp } = require('../utils/fileUtils.js');
+const readline = require('readline');
+const { getHarnessDir, loadHarnessRC, writeHarnessRC, timestamp, listFiles } = require('../utils/fileUtils.js');
 
 /**
  * `harness advance <specId>` — walk a spec through the 6-agent lifecycle.
  *
  *   harness advance 001              → next stage
- *   harness advance 001 --to=coder   → jump straight to a stage
+ *   harness advance 001 --to=coder   → jump to a stage (intermediate stages are
+ *                                      recorded as OMITTED, not silently done)
  *   harness advance 001 --back       → previous stage
  *
  * Stages: interviewer → architect → tester → coder → reviewer → guardian → done
+ *
+ * Philosophy: the flow is followed by default. Skipping is ALLOWED but must be
+ * explicit (`--to=`) and every omitted stage is logged with a timestamp so the
+ * decision is auditable. A stage in `omitted` state is skipped automatically on
+ * the next `advance`.
+ *
+ * When the tester stage completes, the BDD feature files are checked for real
+ * Gherkin scenarios (no `[bracketed]` placeholders). If placeholders remain and
+ * stdin is a TTY, the user is asked how to proceed.
  */
 
 const STAGES = ['interviewer', 'architect', 'tester', 'coder', 'reviewer', 'guardian'];
@@ -76,14 +87,21 @@ function advance(cwd, args) {
 function step(cwd, harnessDir, rc, spec, delta) {
     const agents = spec.agents || {};
     const doneCount = STAGES.filter(a => agents[a] === 'done').length;
+    const omitted = STAGES.filter(a => agents[a] === 'omitted');
 
     let affectedStage;
     if (delta > 0) {
         if (doneCount >= STAGES.length) {
-            completeSpec(cwd, harnessDir, rc, spec);
+            completeSpec(cwd, harnessDir, rc, spec, omitted);
             return;
         }
-        const next = STAGES[doneCount];
+        // Next non-done, non-omitted stage (omitted ones are skipped automatically)
+        const next = STAGES.find(s => agents[s] !== 'done' && agents[s] !== 'omitted');
+        if (!next) {
+            // Everything left is omitted → the flow is fully walked (with recorded omissions)
+            completeSpec(cwd, harnessDir, rc, spec, omitted);
+            return;
+        }
         agents[next] = 'done';
         spec.status = STAGE_STATUS[next];
         affectedStage = next;
@@ -101,29 +119,51 @@ function step(cwd, harnessDir, rc, spec, delta) {
     spec.updatedAt = new Date().toISOString();
     writeHarnessRC(cwd, rc);
     logStage(cwd, harnessDir, spec, affectedStage);
+
+    // BDD gate: when tester completes, verify real Gherkin scenarios
+    if (affectedStage === 'tester') {
+        const specDir = findSpecDir(harnessDir, spec.id);
+        if (specDir) verifyBddScenarios(cwd, harnessDir, rc, spec, specDir);
+    }
+
     printState(spec);
 }
 
+/**
+ * Jump directly to a stage. Stages that were not done and are not the target are
+ * marked `omitted` — the omission is logged, so the flow stays auditable.
+ */
 function jumpTo(cwd, harnessDir, rc, spec, target) {
     const agents = spec.agents || {};
     const targetIdx = STAGES.indexOf(target);
 
     STAGES.forEach((stage, i) => {
-        agents[stage] = i <= targetIdx ? 'done' : 'pending';
+        if (stage === target) agents[stage] = 'done';
+        else if (agents[stage] === 'done') agents[stage] = 'done';
+        else agents[stage] = 'omitted';
     });
     spec.status = STAGE_STATUS[target];
     spec.updatedAt = new Date().toISOString();
+
+    const omittedStages = STAGES.filter(s => agents[s] === 'omitted');
+    if (omittedStages.length > 0) {
+        logOmission(cwd, harnessDir, spec, omittedStages, target);
+    }
 
     writeHarnessRC(cwd, rc);
     logStage(cwd, harnessDir, spec, target);
     printState(spec);
 }
 
-function completeSpec(cwd, harnessDir, rc, spec) {
+function completeSpec(cwd, harnessDir, rc, spec, omitted) {
     rc.activeSpecs = (rc.activeSpecs || []).filter(s => s.id !== spec.id);
     rc.completedSpecs = rc.completedSpecs || [];
     rc.completedSpecs.push({ ...spec, status: 'done', completedAt: new Date().toISOString() });
     writeHarnessRC(cwd, rc);
+
+    const omitNote = omitted.length > 0
+        ? `\nOmitted stages: ${omitted.join(', ')} (see session logs for reasons)\n`
+        : '\nAll 6 agent stages completed in order.\n';
 
     const log = `---
 date: ${timestamp()}
@@ -134,7 +174,7 @@ spec: ${spec.id}-${spec.slug}
 
 # Spec Completed: ${spec.name}
 
-All 6 agent stages passed. Spec moved to completedSpecs.
+${omitNote}
 `;
     fs.appendFileSync(
         path.join(harnessDir, 'memory', 'session-logs', `complete-${spec.id}-${Date.now()}.md`),
@@ -142,6 +182,106 @@ All 6 agent stages passed. Spec moved to completedSpecs.
     );
 
     console.log(`🎉 Spec ${spec.id} (${spec.name}) COMPLETED. Moved to completed specs.`);
+    if (omitted.length > 0) {
+        console.log(`   ⏭️  Omitted: ${omitted.join(', ')} — decision logged in memory/session-logs/`);
+    }
+}
+
+/**
+ * Count real vs placeholder BDD scenarios in a spec's feature files.
+ */
+function countBddScenarios(specDir) {
+    const featuresDir = path.join(specDir, 'features');
+    if (!fs.existsSync(featuresDir)) return { real: 0, placeholder: 0, files: 0 };
+    let real = 0, placeholder = 0, files = 0;
+    for (const feat of fs.readdirSync(featuresDir).filter(f => f.endsWith('.feature'))) {
+        const content = fs.readFileSync(path.join(featuresDir, feat), 'utf8');
+        const scenarios = content.match(/^\s*(?:Scenario Outline|Scenario):\s+(.+)$/gm) || [];
+        files++;
+        for (const s of scenarios) {
+            if (/\[/.test(s)) placeholder++;
+            else real++;
+        }
+    }
+    return { real, placeholder, files };
+}
+
+function findSpecDir(harnessDir, specId) {
+    const specsDir = path.join(harnessDir, 'specs');
+    if (!fs.existsSync(specsDir)) return null;
+    const dirs = fs.readdirSync(specsDir).filter(d => /^\d{3}-/.test(d));
+    const match = dirs.find(d => d === specId || d.startsWith(specId));
+    return match ? path.join(specsDir, match) : null;
+}
+
+/**
+ * After the tester stage, verify Gherkin scenarios are real. In a TTY, ask how
+ * to proceed when placeholders remain; otherwise just warn.
+ */
+function verifyBddScenarios(cwd, harnessDir, rc, spec, specDir) {
+    const { real, placeholder, files } = countBddScenarios(specDir);
+    if (placeholder === 0) {
+        if (real > 0) console.log(`   ✅ BDD: ${real} real Gherkin scenarios in ${files} feature file(s).`);
+        else console.log('   ⚠️  BDD: no scenarios found in feature files.');
+        return;
+    }
+
+    console.log(`\n   ⚠️  BDD: ${real} real scenarios, but ${placeholder} still have [bracketed] placeholders.`);
+
+    if (!process.stdin.isTTY) {
+        console.log('   (non-interactive) Recorded as pending — run `harness agent run tester <spec>` to complete them.');
+        logOmission(cwd, harnessDir, spec, [`bdd-scenarios (${placeholder} placeholders)`], 'tester');
+        return;
+    }
+
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ask = q => new Promise(res => rl.question(q, res));
+    (async () => {
+        console.log('');
+        console.log('   What do you want to do?');
+        console.log('   [1] Generar escenarios con el agente tester (harness agent run tester)');
+        console.log('   [2] Los escribo yo manualmente');
+        console.log('   [3] Omitir (registrar decisión)');
+        try {
+            const ans = (await ask('   → ')).trim();
+            if (ans === '1') {
+                console.log(`\n   📋 Ejecutá: harness agent run tester ${spec.id}`);
+                console.log('   Luego corré: harness advance ' + spec.id);
+            } else if (ans === '3') {
+                logOmission(cwd, harnessDir, spec, [`bdd-scenarios (${placeholder} placeholders)`], 'tester');
+                console.log('   ⏭️  Omission recorded in memory/session-logs/.');
+            } else {
+                console.log('   👌 Manually. Run: harness advance ' + spec.id + ' when done.');
+            }
+        } finally {
+            rl.close();
+        }
+    })();
+}
+
+function logOmission(cwd, harnessDir, spec, stages, target) {
+    const log = `---
+date: ${timestamp()}
+agent: harness-cli
+event: stage-omitted
+spec: ${spec.id}-${spec.slug}
+skipped: ${stages.join(', ')}
+target: ${target}
+---
+
+# Omission — ${spec.name}
+
+Stages/artifacts **omitted** while advancing to \`${target}\`:
+
+${stages.map(s => `- ${s}`).join('\n')}
+
+This is an explicit, recorded decision. Re-run the omitted stage later if needed
+(\`harness agent run <stage> ${spec.id}\`).
+`;
+    fs.appendFileSync(
+        path.join(harnessDir, 'memory', 'session-logs', `omitted-${spec.id}-${Date.now()}.md`),
+        log
+    );
 }
 
 function logStage(cwd, harnessDir, spec, agent) {
@@ -166,14 +306,14 @@ Spec ${spec.id} is now in stage **${agent}** (${spec.status}).
 
 function printState(spec) {
     const agents = spec.agents || {};
-    const line = STAGES.map(s => agents[s] === 'done' ? `✅ ${s}` : `⏳ ${s}`).join(' → ');
+    const line = STAGES.map(s => agents[s] === 'done' ? `✅ ${s}` : agents[s] === 'omitted' ? `⏭️  ${s}` : `⏳ ${s}`).join(' → ');
     console.log(`\n📌 Spec ${spec.id} — ${spec.name}`);
     console.log(`   Status: ${spec.status}`);
     console.log(`   ${line}`);
     if (spec.status !== 'done') {
-        const next = STAGES.find(s => agents[s] !== 'done');
-        console.log(`\n🚀 Next stage: ${next}  (run: harness agent run ${next} ${spec.id})`);
+        const next = STAGES.find(s => agents[s] !== 'done' && agents[s] !== 'omitted');
+        if (next) console.log(`\n🚀 Next stage: ${next}  (run: harness agent run ${next} ${spec.id})`);
     }
 }
 
-module.exports = { advance, STAGES };
+module.exports = { advance, STAGES, countBddScenarios };
