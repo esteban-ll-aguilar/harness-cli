@@ -28,7 +28,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 
 ```bash
 # Install globally
-npm install -g @harness/cli
+npm install -g @esteban-ll-aguilar/harness-cli
 
 # Initialize in your project (auto-detects language!)
 cd my-project
@@ -114,8 +114,8 @@ unzip harness-cli.zip
 cd harness-cli
 
 # 2. Empaqueta e instala globalmente
-npm pack                    # Genera harness-sdd-bdd-tdd-1.0.0.tgz
-npm install -g ./harness-cli-1.1.0.tgz
+npm pack                    # Genera esteban-ll-aguilar-harness-cli-<version>.tgz
+npm install -g ./esteban-ll-aguilar-harness-cli-1.1.0.tgz
 
 # 3. Inicializa en tu proyecto
 cd tu-proyecto
