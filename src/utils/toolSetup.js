@@ -47,7 +47,11 @@ function opencodeJson() {
     return JSON.stringify({
         $schema: 'https://opencode.ai/config.json',
         mcp: {
-            harness: { command: 'harness-mcp' }
+            harness: {
+                type: 'local',
+                command: ['harness-mcp'],
+                enabled: true
+            }
         },
         instructions: ['.harness/brain/AGENTS.md']
     }, null, 2) + '\n';
@@ -75,21 +79,37 @@ function mergeJsonFile(filePath, mergeFn) {
 function writeToolConfigs(cwd, tools) {
     const written = [];
 
-    // .mcp.json — Claude Code, Cursor, Kimi, Qwen, DeepSeek, etc.
-    const mcpTools = ['claude', 'cursor', 'kimi', 'qwen', 'deepseek'];
-    if (tools.some(t => mcpTools.includes(t))) {
+    // .mcp.json — Claude Code and Cursor (project-scoped MCP standard).
+    const mcpJsonTools = ['claude', 'cursor'];
+    if (tools.some(t => mcpJsonTools.includes(t))) {
         mergeJsonFile(path.join(cwd, '.mcp.json'), (existing) => {
             existing.mcpServers = existing.mcpServers || {};
             existing.mcpServers.harness = existing.mcpServers.harness || { command: 'harness-mcp' };
             return existing;
         });
-        written.push({ label: 'MCP (Claude Code / Cursor / Kimi / Qwen / DeepSeek)', file: '.mcp.json' });
+        written.push({ label: 'MCP (Claude Code / Cursor)', file: '.mcp.json' });
+    }
+
+    if (tools.includes('qwen')) {
+        // Qwen Code reads mcpServers from .qwen/settings.json (project scope).
+        const qwenDir = path.join(cwd, '.qwen');
+        if (!fs.existsSync(qwenDir)) fs.mkdirSync(qwenDir, { recursive: true });
+        mergeJsonFile(path.join(qwenDir, 'settings.json'), (existing) => {
+            existing.mcpServers = existing.mcpServers || {};
+            existing.mcpServers.harness = existing.mcpServers.harness || { command: 'harness-mcp' };
+            return existing;
+        });
+        written.push({ label: 'Qwen Code', file: '.qwen/settings.json' });
     }
 
     if (tools.includes('opencode')) {
         mergeJsonFile(path.join(cwd, 'opencode.json'), (existing) => {
             existing.mcp = existing.mcp || {};
-            existing.mcp.harness = existing.mcp.harness || { command: 'harness-mcp' };
+            existing.mcp.harness = {
+                type: 'local',
+                command: ['harness-mcp'],
+                enabled: true
+            };
             existing.instructions = existing.instructions || ['.harness/brain/AGENTS.md'];
             return existing;
         });
@@ -114,6 +134,17 @@ function writeToolConfigs(cwd, tools) {
         if (!fs.existsSync(cursorDir)) fs.mkdirSync(cursorDir, { recursive: true });
         fs.writeFileSync(path.join(cursorDir, 'mcp.json'), mcpJson());
         written.push({ label: 'Cursor', file: '.cursor/mcp.json' });
+    }
+
+    if (tools.includes('kimi')) {
+        // Kimi Code reads MCP servers from ~/.kimi/mcp.json (user scope).
+        // Do NOT write a project file it won't read — notify the user instead.
+        written.push({ label: 'Kimi Code (manual)', file: '~/.kimi/mcp.json — run: kimi mcp add harness --transport stdio -- harness-mcp' });
+    }
+
+    if (tools.includes('deepseek')) {
+        // DeepSeek CLI has no documented project MCP config — nothing to write.
+        written.push({ label: 'DeepSeek (MCP manual)', file: 'no config auto-generated — configure MCP in your DeepSeek client' });
     }
 
     if (tools.includes('copilot')) {

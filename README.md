@@ -78,10 +78,13 @@ tool actually picks up the harness:
 
 | Tool | Config written |
 |---|---|
-| Claude Code / Cursor / Kimi / Qwen / DeepSeek | `.mcp.json` (harness MCP server) |
+| Claude Code | `.mcp.json` (harness MCP server) |
+| Cursor | `.cursor/mcp.json` |
 | OpenCode | `opencode.json` (mcp + instructions) |
 | Codex CLI | `.codex/config.toml` |
-| Cursor | `.cursor/mcp.json` |
+| Qwen Code | `.qwen/settings.json` (harness MCP server) |
+| Kimi Code | manual — `kimi mcp add harness --transport stdio -- harness-mcp` |
+| DeepSeek | no auto config (configure MCP in your client) |
 | Copilot | `AGENTS.md` (root, already created) |
 
 Non-interactive: `harness init --auto` (all tools) or `harness init --tools=claude,opencode`.

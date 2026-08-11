@@ -57,8 +57,9 @@
   },
   "mcp": {
     "harness": {
-      "command": "harness-mcp",
-      "args": []
+      "type": "local",
+      "command": ["harness-mcp"],
+      "enabled": true
     }
   },
   "context_files": [

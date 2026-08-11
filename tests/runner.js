@@ -275,7 +275,9 @@ test('writeToolConfigs writes real per-tool config files', () => {
     assertEqual(mcp.mcpServers.harness.command, 'harness-mcp', '.mcp.json should register harness MCP');
 
     const opencode = JSON.parse(fs.readFileSync(path.join(tmpDir, 'opencode.json'), 'utf8'));
-    assertEqual(opencode.mcp.harness.command, 'harness-mcp', 'opencode.json should register harness MCP');
+    assertEqual(opencode.mcp.harness.type, 'local', 'opencode.json harness MCP should be local type');
+    assertEqual(opencode.mcp.harness.command.join(' '), 'harness-mcp', 'opencode.json should register harness MCP');
+    assertEqual(opencode.mcp.harness.enabled, true, 'opencode.json harness MCP should be enabled');
     assertTrue(opencode.instructions.includes('.harness/brain/AGENTS.md'), 'opencode.json should reference AGENTS.md');
 
     const toml = fs.readFileSync(path.join(tmpDir, '.codex', 'config.toml'), 'utf8');
@@ -289,13 +291,27 @@ test('writeToolConfigs writes real per-tool config files', () => {
     fs.rmSync(tmpDir, { recursive: true });
 });
 
+test('writeToolConfigs writes Qwen MCP to .qwen/settings.json and no fake .mcp.json for kimi/deepseek', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    writeToolConfigs(tmpDir, ['qwen', 'kimi', 'deepseek']);
+
+    // Qwen Code reads mcpServers from .qwen/settings.json
+    const qwen = JSON.parse(fs.readFileSync(path.join(tmpDir, '.qwen', 'settings.json'), 'utf8'));
+    assertEqual(qwen.mcpServers.harness.command, 'harness-mcp', 'Qwen settings.json should register harness MCP');
+
+    // Kimi/DeepSeek must NOT get a project .mcp.json they can't read
+    assertTrue(!fs.existsSync(path.join(tmpDir, '.mcp.json')), 'Kimi/DeepSeek must not get a fake .mcp.json');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
 test('writeToolConfigs merges into existing opencode.json', () => {
     const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
     fs.writeFileSync(path.join(tmpDir, 'opencode.json'), JSON.stringify({ theme: 'dark' }));
     writeToolConfigs(tmpDir, ['opencode']);
     const merged = JSON.parse(fs.readFileSync(path.join(tmpDir, 'opencode.json'), 'utf8'));
     assertEqual(merged.theme, 'dark', 'Existing keys should be preserved');
-    assertEqual(merged.mcp.harness.command, 'harness-mcp', 'MCP should be added to existing file');
+    assertEqual(merged.mcp.harness.command.join(' '), 'harness-mcp', 'MCP should be added to existing file');
+    assertEqual(merged.mcp.harness.type, 'local', 'MCP should be local type');
     fs.rmSync(tmpDir, { recursive: true });
 });
 
