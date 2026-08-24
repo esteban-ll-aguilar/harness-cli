@@ -60,6 +60,7 @@ const { runCLI } = require('../src/cli.js');
 const { selectJudgeRules, judgeRecord } = require('../src/commands/judge.js');
 const { context } = require('../src/commands/context.js');
 const { showHelp } = require('../src/utils/help.js');
+const { newChange } = require('../src/commands/new-change.js');
 const { judgeCheck } = require('../src/commands/review.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
@@ -1233,6 +1234,37 @@ test('runCLI does not throw on an unknown command (falls back to help)', () => {
     let threw = false;
     try { runCLI(['this-command-does-not-exist'], { cwd: tmpDir }); } catch (e) { threw = true; }
     assertFalse(threw, 'Unknown commands should print help, not throw');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// new-change defensive fix: activeSpecs may be missing from .harnessrc
+// ============================================================
+console.log('\n🩹 new-change Defensive Fix');
+
+test('new-change initializes activeSpecs when missing from .harnessrc', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'specs'), { recursive: true });
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.mkdirSync(path.join(harnessDir, 'brain', 'decisions'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({
+        harnessDir: '.harness',
+        language: { detected: 'typescript', name: 'TypeScript' }
+        // deliberately no activeSpecs — simulates a hand-edited/legacy .harnessrc
+    }));
+
+    let threw = false;
+    try {
+        newChange(tmpDir, ['auth-flow']);
+    } catch (e) {
+        threw = true;
+    }
+    assertFalse(threw, 'new-change should not crash when activeSpecs is missing');
+
+    const rc = JSON.parse(fs.readFileSync(path.join(tmpDir, '.harnessrc'), 'utf8'));
+    assertEqual(rc.activeSpecs.length, 1, 'activeSpecs should be created and contain the new spec');
 
     fs.rmSync(tmpDir, { recursive: true });
 });

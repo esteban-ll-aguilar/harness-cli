@@ -134,6 +134,7 @@ function newChange(cwd, args) {
         );
 
         // 7. Update .harnessrc
+        rc.activeSpecs = rc.activeSpecs || [];
         rc.activeSpecs.push({
             id: specId,
             name: name,

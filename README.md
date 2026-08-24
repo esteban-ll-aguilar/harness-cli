@@ -4,7 +4,7 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
-**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 87/87 passing ✅
+**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 88/88 passing ✅
 
 ## ✨ Features
 
@@ -22,7 +22,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 - **Tiered Memory**: Optimizes token usage without degrading results
 - **EARS Notation**: Unambiguous, parseable requirements
 - **CI/CD Gates**: Automated quality checks before production
-- **Self-Tested**: 87 automated tests covering core functionality
+- **Self-Tested**: 88 automated tests covering core functionality
 
 ## 🚀 Quick Start
 
@@ -479,7 +479,9 @@ npm test
 # 🧭 CLI Dispatcher (runCLI)
 #   ✅ gate/judge/orchestrate routing works end-to-end, not just the underlying functions
 #   ✅ help.js's MCP tool count is asserted equal to harness-mcp.js's real TOOLS array
-# Results: 87 passed, 0 failed
+# 🩹 new-change Defensive Fix
+#   ✅ initializes activeSpecs when missing from .harnessrc instead of crashing
+# Results: 88 passed, 0 failed
 ```
 
 ## 📄 License
