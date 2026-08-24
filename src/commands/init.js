@@ -197,7 +197,8 @@ async function initProject(cwd, args) {
                 requireAdr: true,
                 requireSpec: true,
                 requireBdd: true,
-                requireTdd: true
+                requireTdd: true,
+                approvalGates: ['architect']
             }
         });
 

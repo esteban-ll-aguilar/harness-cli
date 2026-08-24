@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { getHarnessDir, loadHarnessRC, listFiles, timestamp } = require('../utils/fileUtils.js');
 const { runTests, findSpecDir } = require('../utils/testRunner.js');
 const { getLanguageConfig } = require('../utils/languageDetector.js');
@@ -142,7 +143,15 @@ function review(cwd, args) {
         }
     }
 
-    // Check 8: Project rules synced into AGENTS.md
+    // Check 8: Spec drift — files touched outside what tasks.md described
+    const driftCheckResult = specDriftCheck(cwd, harnessDir, rc, specId);
+    if (driftCheckResult) checks.push(driftCheckResult);
+
+    // Check 9: Guardian self-judge — recorded verdicts on judge-selected "must" rules
+    const judgeCheckResult = judgeCheck(rc, specId);
+    if (judgeCheckResult) checks.push(judgeCheckResult);
+
+    // Check 10: Project rules synced into AGENTS.md
     const projectRules = (rc.rules || []).filter(r => r.enabled !== false);
     if (projectRules.length > 0) {
         let synced = 0;
@@ -226,6 +235,150 @@ function runTestsGate(cwd, harnessDir, rc, specId, { skipTests, cmd }) {
     };
 }
 
+/**
+ * Extract file-path-looking tokens (backtick-quoted or bare) from a
+ * tasks.md, e.g. `src/utils/fileUtils.js` or src/commands/rules.js.
+ * Heuristic (regex, not a parser) — used only for a WARN-level hint.
+ */
+function extractTaskPaths(tasksMdContent) {
+    const paths = new Set();
+    if (!tasksMdContent) return paths;
+    const pathRe = /[\w.-]+(?:\/[\w.-]+)+\.[A-Za-z0-9]+/g;
+    const matches = tasksMdContent.match(pathRe) || [];
+    for (const m of matches) paths.add(m.replace(/^`+|`+$/g, ''));
+    return paths;
+}
+
+/**
+ * Files changed in the working tree (unstaged + staged + untracked),
+ * relative to the git root. Gracefully reports `ok: false` when the
+ * project isn't a git repo — never throws.
+ */
+function diffFilesForSpec(cwd) {
+    try {
+        const isRepo = execSync('git rev-parse --is-inside-work-tree', { cwd, stdio: ['ignore', 'pipe', 'ignore'] })
+            .toString().trim();
+        if (isRepo !== 'true') return { ok: false, reason: 'not a git repository' };
+    } catch (e) {
+        return { ok: false, reason: 'not a git repository (or git unavailable)' };
+    }
+
+    const run = (cmd) => {
+        try {
+            return execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString().split('\n').filter(Boolean);
+        } catch (e) {
+            return [];
+        }
+    };
+
+    const files = new Set([
+        ...run('git diff --name-only'),
+        ...run('git diff --name-only --staged'),
+        ...run('git ls-files --others --exclude-standard')
+    ]);
+    return { ok: true, files: Array.from(files) };
+}
+
+const SCAFFOLDING_FILES = new Set(['.harnessrc', '.harnessignore', 'AGENTS.md', '.obsidian', '.mcp.json', 'opencode.json']);
+const SCAFFOLDING_PREFIXES = ['.mcp.json', '.cursor/', '.codex/', '.qwen/', '.opencode/', '.kimi/', '.deepseek/', '.obsidian/'];
+
+/**
+ * Files `harness init` writes at the project root (per-tool MCP/config,
+ * AGENTS.md, .harnessignore) — scaffolding, not code a spec's tasks would
+ * enumerate.
+ */
+function isScaffoldingFile(f) {
+    return SCAFFOLDING_FILES.has(f) || SCAFFOLDING_PREFIXES.some(p => f === p || f.startsWith(p));
+}
+
+/**
+ * Guardian check: files touched in the working tree that aren't referenced
+ * anywhere in any active spec's tasks.md. WARN only — heuristic path
+ * extraction has real false positives/negatives, this is a hint, not a gate.
+ */
+function specDriftCheck(cwd, harnessDir, rc, specId) {
+    const specs = (rc.activeSpecs || []).filter(s => !specId || s.id === specId);
+    if (specs.length === 0) return null;
+
+    const diff = diffFilesForSpec(cwd);
+    if (!diff.ok) {
+        return { name: 'Spec drift (code vs tasks.md)', status: 'WARN', hint: `not checkable — ${diff.reason}` };
+    }
+
+    // Harness scaffolding itself (spec.md, tasks.md checkboxes, session logs,
+    // per-tool MCP/config files `harness init` writes at the project root, ...)
+    // isn't "code the spec touched" — exclude it from the comparison.
+    const harnessRel = path.relative(cwd, harnessDir).replace(/\\/g, '/') + '/';
+    const codeFiles = diff.files.filter(f => !f.startsWith(harnessRel) && !isScaffoldingFile(f));
+
+    let anyTasksChecked = false;
+    const uncovered = [];
+    for (const spec of specs) {
+        const specDir = findSpecDir(harnessDir, spec.id);
+        if (!specDir) continue;
+        const tasksPath = path.join(specDir, 'tasks.md');
+        if (!fs.existsSync(tasksPath)) continue;
+        const taskPaths = Array.from(extractTaskPaths(fs.readFileSync(tasksPath, 'utf8')));
+        if (taskPaths.length === 0) continue;
+        anyTasksChecked = true;
+        for (const f of codeFiles) {
+            const covered = taskPaths.some(tp => f.endsWith(tp) || tp.endsWith(f));
+            if (!covered && !uncovered.includes(f)) uncovered.push(f);
+        }
+    }
+
+    if (!anyTasksChecked) return null;
+
+    return {
+        name: `Spec drift (code vs tasks.md) — ${uncovered.length} unexpected file(s)`,
+        status: uncovered.length === 0 ? 'PASS' : 'WARN',
+        hint: uncovered.length > 0
+            ? `Touched but not referenced in any active spec's tasks.md: ${uncovered.slice(0, 5).join(', ')}${uncovered.length > 5 ? '…' : ''}`
+            : ''
+    };
+}
+
+/**
+ * Guardian check for `harness judge` verdicts: any recorded `fail` on a
+ * judge-selected "must" rule FAILs the gate; a selected rule with no
+ * recorded verdict at all WARNs — never silently treated as passing.
+ */
+function judgeCheck(rc, specId) {
+    const specs = (rc.activeSpecs || []).filter(s => !specId || s.id === specId);
+    if (specs.length === 0) return null;
+
+    const mustRules = (rc.rules || []).filter(r => r.enabled !== false && r.severity === 'must').slice(0, 3);
+    if (mustRules.length === 0) return null;
+
+    let anyFail = false;
+    const unjudged = [];
+    for (const spec of specs) {
+        const verdicts = spec.judgeVerdicts || [];
+        for (const rule of mustRules) {
+            const forRule = verdicts.filter(v => v.rule === rule.id);
+            const latest = forRule[forRule.length - 1];
+            if (!latest) { unjudged.push(`${spec.id}:${rule.id}`); continue; }
+            if (latest.verdict === 'fail') anyFail = true;
+        }
+    }
+
+    if (anyFail) {
+        return {
+            name: 'Guardian self-judge (must rules)',
+            status: 'FAIL',
+            hint: 'A recorded verdict marked a "must" rule as failed. Fix the code and re-judge (harness judge record ... --verdict=pass).'
+        };
+    }
+    if (unjudged.length > 0) {
+        return {
+            name: `Guardian self-judge (${unjudged.length} rule(s) not yet judged)`,
+            status: 'WARN',
+            hint: `Run: harness judge ${specId || '<spec>'}`
+        };
+    }
+    return { name: 'Guardian self-judge (must rules)', status: 'PASS' };
+}
+
 function logDecision(cwd, harnessDir, specs, event, reason) {
     const log = `---
 date: ${timestamp()}
@@ -244,4 +397,4 @@ ${reason}
     );
 }
 
-module.exports = { review };
+module.exports = { review, extractTaskPaths, diffFilesForSpec, specDriftCheck, judgeCheck };

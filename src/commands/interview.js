@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { getHarnessDir, ensureDir, timestamp } = require('../utils/fileUtils.js');
+const { detectAmbiguities: detectAmbiguitiesInText } = require('../utils/ambiguityDetector.js');
 
 const QUESTIONS = [
     {
@@ -161,27 +162,11 @@ ${detectAmbiguities(answers)}
 }
 
 function detectAmbiguities(answers) {
-    const ambiguities = [];
-    const allText = JSON.stringify(answers).toLowerCase();
-
-    if (!allText.includes('performance') && !allText.includes('speed') && !allText.includes('latency')) {
-        ambiguities.push('- **Performance requirements not specified.** What are the acceptable response times?');
-    }
-    if (!allText.includes('error') && !allText.includes('fail') && !allText.includes('exception')) {
-        ambiguities.push('- **Error handling not specified.** What happens when operations fail?');
-    }
-    if (!allText.includes('security') && !allText.includes('auth') && !allText.includes('password')) {
-        ambiguities.push('- **Security requirements not specified.** How is access controlled?');
-    }
-    if (!allText.includes('scale') && !allText.includes('concurrent') && !allText.includes('user')) {
-        ambiguities.push('- **Scale requirements not specified.** How many concurrent users?');
-    }
-
-    if (ambiguities.length === 0) {
+    const findings = detectAmbiguitiesInText(JSON.stringify(answers));
+    if (findings.length === 0) {
         return '- No obvious ambiguities detected. Review recommended before proceeding.';
     }
-
-    return ambiguities.join('\n');
+    return findings.join('\n');
 }
 
 module.exports = { interview };

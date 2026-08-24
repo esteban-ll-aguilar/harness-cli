@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, ensureDir, loadHarnessRC, writeHarnessRC, slugify, timestamp } = require('../utils/fileUtils.js');
+const { getHarnessDir, ensureDir, loadHarnessRC, writeHarnessRC, slugify, timestamp, matchGlob } = require('../utils/fileUtils.js');
 const { PRESETS } = require('../data/default-rules.js');
 
 /**
@@ -52,8 +52,10 @@ function rules(cwd, args) {
 📜 HARNESS RULES — rules that ALWAYS apply to every agent
 
   harness rules list                   Show all rules (constitution + project)
-  harness rules add <text> [--severity=must/should] [--tag=...]
-                                       Add a rule (auto-synced to AGENTS.md)
+  harness rules add <text> [--severity=must/should] [--tag=...] [--glob=<pattern>]
+                                       Add a rule (auto-synced to AGENTS.md).
+                                       --glob scopes it to matching files only
+                                       (omit for a rule that always applies).
   harness rules remove <id>            Disable a rule by id
   harness rules preset [name]          Apply a curated rule pack (default: senior)
                                        Seeded automatically by \`harness init\`;
@@ -76,6 +78,7 @@ function parseArgs(args) {
     for (const a of args) {
         if (a.startsWith('--severity=')) opts.severity = a.slice(11);
         else if (a.startsWith('--tag=')) opts.tag = a.slice(6);
+        else if (a.startsWith('--glob=')) opts.glob = a.slice(7);
         else rest.push(a);
     }
     opts.text = rest.join(' ').trim();
@@ -83,9 +86,9 @@ function parseArgs(args) {
 }
 
 function addRule(cwd, harnessDir, args) {
-    const { text, severity, tag } = parseArgs(args);
+    const { text, severity, tag, glob } = parseArgs(args);
     if (!text) {
-        console.log('❌ Usage: harness rules add "Every PR must include a test" [--severity=must] [--tag=testing]');
+        console.log('❌ Usage: harness rules add "Every PR must include a test" [--severity=must] [--tag=testing] [--glob=src/pages/**]');
         return;
     }
 
@@ -109,14 +112,14 @@ title: ${text}
 severity: ${severity}
 tag: ${tag}
 enabled: true
-created: ${ts}
+created: ${ts}${glob ? `\nglob: ${glob}` : ''}
 ---
 
 # ${id}
 
 - **Rule:** ${text}
 - **Severity:** ${severity}
-- **Tag:** ${tag}
+- **Tag:** ${tag}${glob ? `\n- **Scope:** \`${glob}\`` : ''}
 
 ## Rationale
 
@@ -129,13 +132,26 @@ The Guardian checks this rule during \`harness review\`.
     fs.writeFileSync(file, content);
 
     // Register in .harnessrc
-    rules.push({ id, title: text, severity, tag, enabled: true, createdAt: ts });
+    const entry = { id, title: text, severity, tag, enabled: true, createdAt: ts };
+    if (glob) entry.glob = glob;
+    rules.push(entry);
     rc.rules = rules;
-    require('../utils/fileUtils.js').writeHarnessRC(cwd, rc);
+    writeHarnessRC(cwd, rc);
 
     syncRules(cwd, harnessDir);
-    console.log(`✅ Rule added (${severity}/${tag}): ${text}`);
+    console.log(`✅ Rule added (${severity}/${tag}${glob ? `, scope: ${glob}` : ''}): ${text}`);
     console.log(`   ${path.join('.harness', ...RULES_DIR, id + '.md')}`);
+}
+
+/**
+ * Rules that apply to a given file path: unscoped rules (no `glob`) always
+ * apply; scoped rules apply only when their glob matches. Disabled rules are
+ * never included.
+ */
+function rulesForFile(rc, filePath) {
+    const rules = (rc.rules || []).filter(r => r.enabled !== false);
+    if (!filePath) return rules;
+    return rules.filter(r => !r.glob || matchGlob(r.glob, filePath));
 }
 
 /**
@@ -172,7 +188,7 @@ severity: ${r.severity}
 tag: ${r.tag}
 enabled: true
 created: ${ts}
-preset: ${presetName}
+preset: ${presetName}${r.glob ? `\nglob: ${r.glob}` : ''}
 ---
 
 # ${r.id}
@@ -180,7 +196,7 @@ preset: ${presetName}
 - **Rule:** ${r.title}
 - **Severity:** ${r.severity}
 - **Tag:** ${r.tag}
-- **Preset:** ${presetName}
+- **Preset:** ${presetName}${r.glob ? `\n- **Scope:** \`${r.glob}\`` : ''}
 
 ## Rationale
 
@@ -192,7 +208,9 @@ The Guardian checks this rule during \`harness review\`.
 `;
         fs.writeFileSync(file, content);
 
-        rules.push({ id: r.id, title: r.title, severity: r.severity, tag: r.tag, enabled: true, createdAt: ts, preset: presetName });
+        const entry = { id: r.id, title: r.title, severity: r.severity, tag: r.tag, enabled: true, createdAt: ts, preset: presetName };
+        if (r.glob) entry.glob = r.glob;
+        rules.push(entry);
         existingIds.add(r.id);
         added++;
     }
@@ -255,7 +273,7 @@ ${'─'.repeat(60)}`);
         if (r.enabled === false) {
             console.log(`  ✖️ [disabled] ${r.id} — ${r.title}`);
         } else {
-            console.log(`  🔒 [${r.severity}] ${r.title}   (${r.tag})`);
+            console.log(`  🔒 [${r.severity}] ${r.title}   (${r.tag}${r.glob ? `, scope: ${r.glob}` : ''})`);
         }
     }
 
@@ -338,4 +356,4 @@ function checkRules(cwd, harnessDir) {
     return fail === 0;
 }
 
-module.exports = { rules, applyPreset };
+module.exports = { rules, applyPreset, rulesForFile };

@@ -30,6 +30,26 @@
 
 > **RULE:** If a spec requires a different stack, document it in the spec's ADR.
 
+### 2.1 Build, Test & Lint Commands
+
+| Action | Command |
+|--------|---------|
+| Install deps | `npm install` |
+| Run all tests | `npm test` |
+| Run one spec's tests | `harness test <specId>` |
+| Lint | `npm run lint` |
+| Build | `npm run build` |
+| Dev server | `npm run dev` |
+
+> **RULE:** Keep this table accurate — it's what every AI tool runs before claiming
+> something works. Update it the moment a command changes.
+
+### 2.2 Commit & PR Conventions
+
+- Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
+- One logical change per commit; reference the spec id when applicable (`specs/NNN-x`).
+- PR description: what changed + why, plus the `harness review` output for the touched spec.
+
 ---
 
 ## 3. Reglas Inmutables (Constitution)
@@ -215,12 +235,20 @@ Feature: [Feature Name]
 This project uses **tiered memory + BM25 retrieval** over the `.harness` vault
 (Markdown in `brain/`, `specs/`, `memory/` — open `.harness/` as an Obsidian vault):
 
-- **ALWAYS loaded:** AGENTS.md + constitution.md + north-star.md (~500 tokens)
-- **ON DEMAND:** `harness memory search "<topic>"` → BM25 retrieval (no deps)
+- **ALWAYS loaded:** AGENTS.md (includes every project rule) + constitution.md + north-star.md (~500 tokens)
+- **ON DEMAND:** retrieval + symbol lookup, folded into one call (see below)
 - **TRIGGER:** Load spec.md when working on that feature
 - **RARE:** Full vault scan (only on explicit request)
 
-**For AI tools:** Read `.harnessrc` to understand project state before acting.
+> **RULE — do this automatically, don't wait to be told:** call `harness_context`
+> (MCP) / `harness context` (CLI) with `--query=<topic>` and/or `--symbol=<name>`
+> at the START of any non-trivial task, before writing code — not because a human
+> asked you to "search" or "look something up", but because that's how you find
+> prior decisions and existing code before duplicating either. A human will
+> rarely think to ask for this explicitly; it's on you to do it proactively.
+> `harness_context` already bundles retrieval, symbol lookup, project rules and
+> state in one call — there's no separate "search" or "list rules" tool to
+> remember to invoke.
 
 ---
 
@@ -234,13 +262,14 @@ This project uses **tiered memory + BM25 retrieval** over the `.harness` vault
 | `/harness-interview` | Start requirement gathering |
 | `/harness-spec <name>` | Generate spec template |
 | `/harness-advance <id>` | Move a spec to the next agent stage |
-| `/harness-memory search <q>` | Semantic search over the vault |
-| `/harness-rules` | Show project rules (must follow) |
-| `/harness-context` | Dump the full optimized context bundle |
+| `/harness-context` | **Call this proactively.** Bundles rules, retrieval (`--query=`), symbol lookup (`--symbol=`) and state in one call |
+| `/harness-gate clarify\|approve` | Lifecycle checkpoints — see section 5 |
+| `/harness-judge` | Self-assess "must" rules against the diff |
 
-**BEFORE you act:** read `.harnessrc`, run `harness memory search "<topic>"` to
-pull prior decisions, and follow the project rules in section 13. This project
-can also be driven via MCP (`harness-mcp` exposes 13 tools to any MCP agent).
+**BEFORE you act:** read `.harnessrc`, call `harness context --query="<topic>"`
+(pulls prior decisions + rules automatically — see section 9), and follow the
+project rules in section 13. This project can also be driven via MCP
+(`harness-mcp` exposes 20 tools to any MCP agent).
 
 ---
 

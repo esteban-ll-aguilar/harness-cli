@@ -26,11 +26,20 @@ there here will would can could should may might must shall do does did done
 having been being them their theirs they we our ours us
 `.split(/\s+/).filter(Boolean));
 
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
+
+/**
+ * Strip diacritics (á→a, é→e, ñ→n, ...) so search is accent-insensitive.
+ * Precomposed accented characters decompose to exactly one base codepoint
+ * under NFD, so this preserves string length/character positions — safe to
+ * reuse for snippet-position lookups against the original (accented) text.
+ */
+function stripDiacritics(text) {
+    return text.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
 
 function tokenize(text) {
-    return String(text)
-        .toLowerCase()
+    return stripDiacritics(String(text).toLowerCase())
         .replace(/```[\s\S]*?```/g, ' ')      // drop code blocks (noise)
         .replace(/[`*#_>|~[\](){}'"!,.;:?\\/-]+/g, ' ')  // markdown noise
         .split(/\s+/)
@@ -148,7 +157,11 @@ function search(index, harnessDir, query, topN = 5) {
 
 function snippetFor(content, terms, width = 200) {
     if (!content) return '';
-    const idx = content.toLowerCase().indexOf(terms[0]);
+    // terms[] are already accent-stripped (tokenize() normalized the query) —
+    // search on an equally-stripped copy of content so an accent-insensitive
+    // match still finds its position, but slice from the ORIGINAL content so
+    // the snippet shown to a human keeps its real accents.
+    const idx = stripDiacritics(content.toLowerCase()).indexOf(terms[0]);
     if (idx === -1) return content.slice(0, width);
     const start = Math.max(0, idx - 60);
     return (start > 0 ? '…' : '') + content.slice(start, start + width) + '…';
@@ -187,6 +200,7 @@ function loadIndex(harnessDir, { rebuild = true } = {}) {
 module.exports = {
     INDEX_VERSION,
     tokenize,
+    stripDiacritics,
     termFrequencies,
     fingerprint,
     buildIndex,

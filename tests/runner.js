@@ -41,13 +41,26 @@ function assertFalse(value, msg) {
 
 // Load modules
 const { detectLanguages, getLanguageConfig } = require('../src/utils/languageDetector.js');
-const { slugify, timestamp, nextSpecId, listFiles } = require('../src/utils/fileUtils.js');
-const { tokenize, buildIndex, search } = require('../src/utils/retrieval.js');
+const { slugify, timestamp, nextSpecId, listFiles, matchGlob, withHarnessRCLock, loadHarnessRC } = require('../src/utils/fileUtils.js');
+const { detectAmbiguities } = require('../src/utils/ambiguityDetector.js');
+const { tokenize, stripDiacritics, buildIndex, search } = require('../src/utils/retrieval.js');
 const { getToolConfig } = require('../src/utils/aiAdapter.js');
 const { parseToolsFlag, writeToolConfigs } = require('../src/utils/toolSetup.js');
 const { STAGES, countBddScenarios } = require('../src/commands/advance.js');
 const { parseOutput, specHasOwnConfig } = require('../src/utils/testRunner.js');
-const { applyPreset } = require('../src/commands/rules.js');
+const { applyPreset, rulesForFile } = require('../src/commands/rules.js');
+const { extractTaskPaths, specDriftCheck } = require('../src/commands/review.js');
+const { execSync } = require('child_process');
+const { advance } = require('../src/commands/advance.js');
+const { approve } = require('../src/commands/approve.js');
+const { orchestrate } = require('../src/commands/orchestrate.js');
+const { compactSessionLogs } = require('../src/commands/memory.js');
+const { buildSymbolIndex, findSymbol, getSymbolIndex, findReferences } = require('../src/utils/symbolIndex.js');
+const { runCLI } = require('../src/cli.js');
+const { selectJudgeRules, judgeRecord } = require('../src/commands/judge.js');
+const { context } = require('../src/commands/context.js');
+const { showHelp } = require('../src/utils/help.js');
+const { judgeCheck } = require('../src/commands/review.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -194,6 +207,32 @@ test('tokenize strips markdown noise and stopwords', () => {
     assertTrue(tokens.includes('token'), 'Should keep token');
     assertFalse(tokens.includes('the'), 'Should drop stopwords');
     assertFalse(tokens.includes('a'), 'Should drop stopwords');
+});
+
+test('stripDiacritics normalizes accented Spanish characters', () => {
+    assertEqual(stripDiacritics('página'), 'pagina');
+    assertEqual(stripDiacritics('código'), 'codigo');
+    assertEqual(stripDiacritics('configuración'), 'configuracion');
+});
+
+test('tokenize makes accented and unaccented queries equivalent', () => {
+    assertEqual(tokenize('Verificar la página').join(' '), tokenize('Verificar la pagina').join(' '));
+});
+
+test('search finds accented content when the query has no accents, and vice versa', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'brain', 'ui.md'),
+        'Antes de construir cualquier página, proponer el diseño y la configuración de filtros.');
+    const index = buildIndex(tmpDir);
+
+    const withoutAccents = search(index, tmpDir, 'configuracion pagina', 3);
+    assertTrue(withoutAccents.length > 0, 'Unaccented query should find accented content');
+
+    const withAccents = search(index, tmpDir, 'configuración página', 3);
+    assertTrue(withAccents.length > 0, 'Accented query should still find the same content');
+
+    fs.rmSync(tmpDir, { recursive: true });
 });
 
 test('buildIndex + search ranks the relevant document first', () => {
@@ -439,6 +478,762 @@ test('applyPreset returns an error for an unknown preset name', () => {
     const { tmpDir, harnessDir } = setupRulesFixture();
     const result = applyPreset(tmpDir, harnessDir, 'does-not-exist');
     assertFalse(result.ok, 'Unknown preset should fail gracefully');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Glob Matching (rule scoping)
+// ============================================================
+console.log('\n📦 Glob Matching');
+
+test('matchGlob matches ** across directories', () => {
+    assertTrue(matchGlob('src/pages/**', 'src/pages/foo/bar.tsx'), 'Should match nested path under src/pages/');
+    assertFalse(matchGlob('src/pages/**', 'src/api/foo.ts'), 'Should not match a sibling directory');
+});
+
+test('matchGlob matches **/*.ext at any depth', () => {
+    assertTrue(matchGlob('**/*.sql', 'db/migrations/001.sql'), 'Should match nested .sql file');
+    assertTrue(matchGlob('**/*.sql', '001.sql'), 'Should match a top-level .sql file too');
+    assertFalse(matchGlob('**/*.sql', 'db/migrations/001.js'), 'Should not match a different extension');
+});
+
+test('matchGlob single * does not cross directory boundaries', () => {
+    assertTrue(matchGlob('src/*.ts', 'src/foo.ts'));
+    assertFalse(matchGlob('src/*.ts', 'src/sub/foo.ts'), 'Single * should not match across /');
+});
+
+// ============================================================
+// Rule scoping (glob field on rules)
+// ============================================================
+console.log('\n📜 Rule Scoping');
+
+test('rulesForFile includes unscoped rules for any path', () => {
+    const rc = { rules: [{ id: 'always', title: 'Always applies', severity: 'must', tag: 'general', enabled: true }] };
+    const matches = rulesForFile(rc, 'src/anything.ts');
+    assertEqual(matches.length, 1, 'Unscoped rule should apply to any file');
+});
+
+test('rulesForFile filters scoped rules by glob', () => {
+    const rc = {
+        rules: [
+            { id: 'ui-only', title: 'UI rule', severity: 'must', tag: 'ui-ux', enabled: true, glob: 'src/pages/**' },
+            { id: 'always', title: 'Always applies', severity: 'should', tag: 'general', enabled: true }
+        ]
+    };
+    const inScope = rulesForFile(rc, 'src/pages/list.tsx');
+    const outOfScope = rulesForFile(rc, 'src/api/list.ts');
+
+    assertEqual(inScope.length, 2, 'Both rules should apply inside src/pages/');
+    assertEqual(outOfScope.length, 1, 'Only the unscoped rule should apply outside src/pages/');
+    assertEqual(outOfScope[0].id, 'always');
+});
+
+test('rulesForFile excludes disabled rules', () => {
+    const rc = { rules: [{ id: 'off', title: 'Disabled rule', severity: 'must', tag: 'general', enabled: false }] };
+    assertEqual(rulesForFile(rc, 'src/x.ts').length, 0, 'Disabled rules should never apply');
+});
+
+test('harness rules add --glob persists the scope in .harnessrc', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), '# AGENTS\n');
+    fs.writeFileSync(path.join(tmpDir, 'AGENTS.md'), '# AGENTS\n');
+
+    const { rules } = require('../src/commands/rules.js');
+    rules(tmpDir, ['add', 'Scoped UI rule', '--glob=src/pages/**', '--tag=ui-ux']);
+
+    const rc = JSON.parse(fs.readFileSync(path.join(tmpDir, '.harnessrc'), 'utf8'));
+    assertEqual(rc.rules.length, 1);
+    assertEqual(rc.rules[0].glob, 'src/pages/**', 'glob should be persisted on the rule entry');
+
+    const ruleFile = fs.readFileSync(path.join(harnessDir, 'brain', 'rules', rc.rules[0].id + '.md'), 'utf8');
+    assertTrue(ruleFile.includes('glob: src/pages/**'), 'glob should be in the rule frontmatter');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Spec Drift Detection (Guardian)
+// ============================================================
+console.log('\n🔬 Spec Drift Detection');
+
+test('extractTaskPaths extracts backtick-quoted and bare file paths', () => {
+    const md = '- [ ] 1.1 Add `matchGlob()` to `src/utils/fileUtils.js`\n- [ ] 1.2 Update src/commands/rules.js too';
+    const paths = extractTaskPaths(md);
+    assertTrue(paths.has('src/utils/fileUtils.js'), 'Should extract backtick-quoted path');
+    assertTrue(paths.has('src/commands/rules.js'), 'Should extract bare path');
+});
+
+test('extractTaskPaths returns an empty set for content with no paths', () => {
+    assertEqual(extractTaskPaths('- [ ] 1.1 Think about the design').size, 0);
+});
+
+function setupDriftFixture() {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    execSync('git init -q', { cwd: tmpDir });
+    const harnessDir = path.join(tmpDir, '.harness');
+    const specDir = path.join(harnessDir, 'specs', '001-auth');
+    fs.mkdirSync(specDir, { recursive: true });
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), '- [ ] 1.1 Implement `src/auth.js`');
+    const rc = { activeSpecs: [{ id: '001', slug: 'auth', name: 'auth' }] };
+    return { tmpDir, harnessDir, rc };
+}
+
+test('specDriftCheck flags a file touched outside tasks.md', () => {
+    const { tmpDir, harnessDir, rc } = setupDriftFixture();
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'unexpected.js'), '// not in tasks.md\n');
+
+    const result = specDriftCheck(tmpDir, harnessDir, rc, null);
+    assertTrue(result !== null, 'Should produce a check result');
+    assertEqual(result.status, 'WARN');
+    assertTrue(result.hint.includes('src/unexpected.js'), 'Hint should name the unexpected file');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('specDriftCheck passes when all changed files are covered', () => {
+    const { tmpDir, harnessDir, rc } = setupDriftFixture();
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'auth.js'), '// covered by tasks.md\n');
+
+    const result = specDriftCheck(tmpDir, harnessDir, rc, null);
+    assertEqual(result.status, 'PASS', 'Only covered files changed, should be PASS');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('specDriftCheck warns "not checkable" outside a git repo', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const specDir = path.join(harnessDir, 'specs', '001-auth');
+    fs.mkdirSync(specDir, { recursive: true });
+    fs.writeFileSync(path.join(specDir, 'tasks.md'), '- [ ] 1.1 Implement `src/auth.js`');
+    const rc = { activeSpecs: [{ id: '001', slug: 'auth', name: 'auth' }] };
+
+    const result = specDriftCheck(tmpDir, harnessDir, rc, null);
+    assertEqual(result.status, 'WARN');
+    assertTrue(result.hint.includes('not checkable'), 'Should report not checkable outside a git repo');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Concurrent safety (.harnessrc lock)
+// ============================================================
+console.log('\n🔒 Concurrent Safety (.harnessrc lock)');
+
+test('withHarnessRCLock: sequential acquisitions both succeed', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({ counter: 0 }));
+
+    withHarnessRCLock(tmpDir, rc => { rc.counter = 1; });
+    withHarnessRCLock(tmpDir, rc => { rc.a = 'first'; });
+
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.counter, 1, 'First mutation should persist');
+    assertEqual(rc.a, 'first', 'Second mutation should persist on top of the first');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('withHarnessRCLock: a held lock blocks a second acquisition until released', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({}));
+    const lockDir = path.join(tmpDir, '.harnessrc.lock');
+    fs.mkdirSync(lockDir); // simulate another process holding the lock
+
+    let threw = false;
+    try {
+        withHarnessRCLock(tmpDir, rc => { rc.x = 1; }, { timeoutMs: 150, retryMs: 30 });
+    } catch (e) {
+        threw = true;
+    }
+    assertTrue(threw, 'Should time out instead of writing while the lock is held');
+
+    fs.rmdirSync(lockDir); // release
+    withHarnessRCLock(tmpDir, rc => { rc.x = 1; });
+    assertEqual(loadHarnessRC(tmpDir).x, 1, 'Should succeed once the lock is released');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('withHarnessRCLock: a stale lock is recovered instead of blocking forever', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({}));
+    const lockDir = path.join(tmpDir, '.harnessrc.lock');
+    fs.mkdirSync(lockDir);
+    const old = new Date(Date.now() - 60000); // 60s old — well past a small staleMs
+    fs.utimesSync(lockDir, old, old);
+
+    withHarnessRCLock(tmpDir, rc => { rc.recovered = true; }, { staleMs: 1000, timeoutMs: 500 });
+    assertTrue(loadHarnessRC(tmpDir).recovered, 'Should recover the stale lock and write successfully');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Ambiguity detector (clarify gate)
+// ============================================================
+console.log('\n❓ Ambiguity Detector');
+
+test('detectAmbiguities flags missing performance/error/security/scale coverage', () => {
+    const findings = detectAmbiguities('This system lets people upload photos.');
+    assertEqual(findings.length, 4, 'Should flag all 4 categories when none are mentioned');
+});
+
+test('detectAmbiguities returns nothing when all categories are covered', () => {
+    const text = 'Performance: p95 under 200ms. Errors return a 4xx with a message. ' +
+        'Security: auth required on every endpoint. Scale: supports 500 concurrent users.';
+    assertEqual(detectAmbiguities(text).length, 0, 'Should find nothing missing');
+});
+
+// ============================================================
+// Clarify gate + Approval checkpoint (advance.js lifecycle gating)
+// ============================================================
+console.log('\n🚦 Lifecycle Gating (clarify + approval)');
+
+function setupAdvanceFixture(specMdContent) {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const specDir = path.join(harnessDir, 'specs', '001-auth');
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.mkdirSync(specDir, { recursive: true });
+    fs.writeFileSync(path.join(specDir, 'spec.md'), specMdContent);
+    fs.writeFileSync(
+        path.join(tmpDir, '.harnessrc'),
+        JSON.stringify({
+            harnessDir: '.harness',
+            activeSpecs: [{ id: '001', slug: 'auth', name: 'auth', agents: {}, status: 'requirements' }],
+            quality: { approvalGates: ['architect'] }
+        })
+    );
+    return { tmpDir, harnessDir };
+}
+
+function readSpec(tmpDir) {
+    const rc = loadHarnessRC(tmpDir);
+    return rc.activeSpecs.find(s => s.id === '001');
+}
+
+test('advance blocks past architect without approval; harness approve unblocks it', () => {
+    const { tmpDir } = setupAdvanceFixture('# spec\nPerformance: fast. Errors: handled. Security: auth. Scale: many users.');
+
+    advance(tmpDir, ['001']); // interviewer -> done
+    assertEqual(readSpec(tmpDir).agents.interviewer, 'done');
+
+    advance(tmpDir, ['001']); // architect blocked (no approval yet)
+    assertTrue(readSpec(tmpDir).agents.architect !== 'done', 'architect should stay not-done without approval');
+
+    approve(tmpDir, ['001', '--stage=architect']);
+    advance(tmpDir, ['001']); // architect now unblocked
+    assertEqual(readSpec(tmpDir).agents.architect, 'done', 'architect should advance once approved');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('approve is idempotent: re-approving is a no-op with a single log entry', () => {
+    const { tmpDir, harnessDir } = setupAdvanceFixture('# spec\nno details');
+
+    approve(tmpDir, ['001', '--stage=architect']);
+    approve(tmpDir, ['001', '--stage=architect']);
+
+    const logs = fs.readdirSync(path.join(harnessDir, 'memory', 'session-logs')).filter(f => f.startsWith('approved-001-'));
+    assertEqual(logs.length, 1, 'Only one approval log entry should exist after approving twice');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('advance blocks tester on unresolved ambiguities, --force overrides and logs it', () => {
+    const { tmpDir, harnessDir } = setupAdvanceFixture('# spec\nJust a vague description, nothing specific.');
+
+    approve(tmpDir, ['001', '--stage=architect']);
+    advance(tmpDir, ['001']); // interviewer -> done
+    advance(tmpDir, ['001']); // architect -> done (approved)
+    assertEqual(readSpec(tmpDir).agents.architect, 'done');
+
+    advance(tmpDir, ['001']); // tester blocked on ambiguities
+    assertTrue(readSpec(tmpDir).agents.tester !== 'done', 'tester should stay blocked without --force');
+
+    advance(tmpDir, ['001', '--force']); // override
+    assertEqual(readSpec(tmpDir).agents.tester, 'done', 'tester should advance with --force');
+
+    const logs = fs.readdirSync(path.join(harnessDir, 'memory', 'session-logs')).filter(f => f.startsWith('ambiguity-override-001-'));
+    assertEqual(logs.length, 1, 'The override should be logged');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('advance proceeds through tester normally when spec.md has no detected ambiguities', () => {
+    const { tmpDir } = setupAdvanceFixture(
+        '# spec\nPerformance: p95 200ms. Errors: return 4xx. Security: auth required. Scale: 500 concurrent.'
+    );
+
+    approve(tmpDir, ['001', '--stage=architect']);
+    advance(tmpDir, ['001']); // interviewer
+    advance(tmpDir, ['001']); // architect
+    advance(tmpDir, ['001']); // tester — should NOT block
+    assertEqual(readSpec(tmpDir).agents.tester, 'done', 'tester should advance without --force when spec.md is unambiguous');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Parallel spec orchestration (claim/release protocol)
+// ============================================================
+console.log('\n🎛️  Parallel Spec Orchestration');
+
+function setupOrchestrateFixture() {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.writeFileSync(
+        path.join(tmpDir, '.harnessrc'),
+        JSON.stringify({
+            harnessDir: '.harness',
+            activeSpecs: [{ id: '001', slug: 'auth', name: 'auth', agents: {}, status: 'requirements' }]
+        })
+    );
+    return { tmpDir, harnessDir };
+}
+
+test('orchestrate claim succeeds on a free spec', () => {
+    const { tmpDir } = setupOrchestrateFixture();
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-a']);
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].claimedBy, 'agent-a');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('orchestrate claim is idempotent for the same owner', () => {
+    const { tmpDir } = setupOrchestrateFixture();
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-a']);
+    const firstClaimedAt = loadHarnessRC(tmpDir).activeSpecs[0].claimedAt;
+
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-a']);
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].claimedBy, 'agent-a');
+    assertEqual(rc.activeSpecs[0].claimedAt, firstClaimedAt, 'Re-claiming your own claim should not change the timestamp');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('orchestrate claim is refused for a fresh claim held by someone else', () => {
+    const { tmpDir } = setupOrchestrateFixture();
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-a']);
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-b']);
+
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].claimedBy, 'agent-a', 'Claim should remain with the original owner');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('orchestrate claim steals a stale claim and logs it', () => {
+    const { tmpDir, harnessDir } = setupOrchestrateFixture();
+    const rc = loadHarnessRC(tmpDir);
+    rc.activeSpecs[0].claimedBy = 'agent-a';
+    rc.activeSpecs[0].claimedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(); // 3h old
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify(rc));
+
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-b']);
+
+    const after = loadHarnessRC(tmpDir);
+    assertEqual(after.activeSpecs[0].claimedBy, 'agent-b', 'Stale claim should be taken over');
+
+    const logs = fs.readdirSync(path.join(harnessDir, 'memory', 'session-logs')).filter(f => f.startsWith('claim-stolen-001-'));
+    assertEqual(logs.length, 1, 'Stealing a stale claim should be logged');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('orchestrate release is idempotent', () => {
+    const { tmpDir } = setupOrchestrateFixture();
+    orchestrate(tmpDir, ['release', '001']); // never claimed — no-op
+    orchestrate(tmpDir, ['claim', '001', '--owner=agent-a']);
+    orchestrate(tmpDir, ['release', '001']);
+    orchestrate(tmpDir, ['release', '001']); // already released — no-op
+
+    const rc = loadHarnessRC(tmpDir);
+    assertTrue(!rc.activeSpecs[0].claimedBy, 'Spec should be free after release');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Memory compaction
+// ============================================================
+console.log('\n🗜️  Memory Compaction');
+
+function writeLogWithAge(logsDir, name, ageDays, frontmatterExtra = '') {
+    const fp = path.join(logsDir, name);
+    fs.writeFileSync(fp, `---\ndate: some-date\nagent: harness-cli\nevent: stage-advanced\n${frontmatterExtra}---\n\n# ${name}\n`);
+    const past = new Date(Date.now() - ageDays * 24 * 60 * 60 * 1000);
+    fs.utimesSync(fp, past, past);
+    return fp;
+}
+
+test('memory compact archives logs older than the threshold and writes a digest', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    writeLogWithAge(logsDir, 'old-log.md', 40);
+
+    const result = compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    assertEqual(result.archived, 1, 'One log should be archived');
+    assertFalse(fs.existsSync(path.join(logsDir, 'old-log.md')), 'Original should be moved out');
+    assertTrue(fs.existsSync(path.join(harnessDir, '.archive', 'session-logs', 'old-log.md')), 'Should exist in the archive');
+    assertTrue(fs.existsSync(result.digestPath), 'Digest file should be written');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('memory compact leaves recent logs in place', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    writeLogWithAge(logsDir, 'recent-log.md', 2);
+
+    const result = compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    assertEqual(result.archived, 0, 'Recent log should not be archived');
+    assertTrue(fs.existsSync(path.join(logsDir, 'recent-log.md')), 'Recent log should stay in place');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('memory compact is idempotent — a second run finds nothing to compact', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    writeLogWithAge(logsDir, 'old-log.md', 40);
+
+    compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    const second = compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    assertEqual(second.archived, 0, 'Second run should find nothing eligible');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('archived logs are excluded from a rebuilt BM25 index', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    writeLogWithAge(logsDir, 'old-log.md', 40);
+
+    compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    const index = buildIndex(harnessDir);
+    const hasArchived = Object.keys(index.docs).some(rel => rel.includes('.archive'));
+    assertFalse(hasArchived, 'Archived logs must not be part of the indexed corpus');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Symbol Index
+// ============================================================
+console.log('\n🔎 Symbol Index');
+
+test('buildSymbolIndex finds a JS function and class definition', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'auth.js'),
+        'function getUserByEmail(email) {\n  return null;\n}\n\nclass AuthService {\n}\n');
+
+    const index = buildSymbolIndex(tmpDir);
+    assertTrue(!!index.symbols.getUserByEmail, 'Should find the function');
+    assertEqual(index.symbols.getUserByEmail[0].line, 1);
+    assertEqual(index.symbols.getUserByEmail[0].kind, 'function');
+    assertTrue(!!index.symbols.AuthService, 'Should find the class');
+    assertEqual(index.symbols.AuthService[0].kind, 'class');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('buildSymbolIndex finds a Python def', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmpDir, 'auth.py'), 'def get_user_by_email(email):\n    return None\n');
+
+    const index = buildSymbolIndex(tmpDir);
+    assertTrue(!!index.symbols.get_user_by_email, 'Should find the Python function');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('findSymbol falls back to substring matches when there is no exact hit', () => {
+    const index = { symbols: { getUserByEmail: [{ file: 'src/auth.js', line: 1, kind: 'function' }] } };
+    const exactMiss = findSymbol(index, 'getUser');
+    assertEqual(exactMiss.exact.length, 0);
+    assertTrue(exactMiss.partial.length > 0, 'Should fall back to a substring match');
+    assertEqual(exactMiss.partial[0].symbol, 'getUserByEmail');
+});
+
+test('findSymbol reports no matches cleanly', () => {
+    const index = { symbols: { getUserByEmail: [{ file: 'src/auth.js', line: 1, kind: 'function' }] } };
+    const result = findSymbol(index, 'totallyUnrelatedName');
+    assertEqual(result.exact.length, 0);
+    assertEqual(result.partial.length, 0);
+});
+
+test('getSymbolIndex auto-rebuilds when the project source changes (no manual reindex step)', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'a.js'), 'function firstFn() {}\n');
+
+    const first = getSymbolIndex(tmpDir, harnessDir);
+    assertTrue(!!first.symbols.firstFn, 'Should find the first function');
+    assertFalse(!!first.symbols.secondFn, 'secondFn does not exist yet');
+
+    fs.writeFileSync(path.join(tmpDir, 'src', 'a.js'), 'function firstFn() {}\nfunction secondFn() {}\n');
+    const second = getSymbolIndex(tmpDir, harnessDir);
+    assertTrue(!!second.symbols.secondFn, 'A second call after a source change should see the new function without an explicit rebuild call');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('getSymbolIndex returns the cached index unchanged when nothing changed', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'a.js'), 'function firstFn() {}\n');
+
+    const first = getSymbolIndex(tmpDir, harnessDir);
+    const second = getSymbolIndex(tmpDir, harnessDir);
+    assertEqual(second.builtAt, first.builtAt, 'Should not rebuild (same builtAt) when the fingerprint is unchanged');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('findReferences finds call sites and excludes the definition line', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'total.js'),
+        'function computeTotal(items) {\n  return 0;\n}\n');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'orders.js'),
+        'const x = computeTotal(cart);\nconsole.log(computeTotal(other));\n');
+
+    const index = buildSymbolIndex(tmpDir);
+    const defs = index.symbols.computeTotal;
+    const refs = findReferences(tmpDir, 'computeTotal', defs);
+
+    assertEqual(refs.length, 2, 'Should find both call sites, one per line');
+    assertFalse(refs.some(r => r.file === 'src/total.js' && r.line === 1), 'Should exclude the definition line itself');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('findReferences returns empty when a symbol is never used elsewhere', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'dead.js'), 'function neverCalled() {}\n');
+
+    const index = buildSymbolIndex(tmpDir);
+    const refs = findReferences(tmpDir, 'neverCalled', index.symbols.neverCalled);
+    assertEqual(refs.length, 0, 'A symbol used only in its own definition line has no references');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Guardian self-judge
+// ============================================================
+console.log('\n⚖️  Guardian Self-Judge');
+
+function makeRule(id, severity = 'must') {
+    return { id, title: `Rule ${id}`, severity, tag: 'general', enabled: true };
+}
+
+test('selectJudgeRules picks up to 3 enabled must rules', () => {
+    const rc = { rules: [makeRule('a'), makeRule('b'), makeRule('c'), makeRule('d'), makeRule('e', 'should')] };
+    const selected = selectJudgeRules(rc);
+    assertEqual(selected.length, 3, 'Should cap at 3');
+    assertTrue(selected.every(r => r.severity === 'must'), 'Should only select must rules');
+});
+
+function setupJudgeFixture() {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.writeFileSync(
+        path.join(tmpDir, '.harnessrc'),
+        JSON.stringify({
+            harnessDir: '.harness',
+            rules: [makeRule('a'), makeRule('b')],
+            activeSpecs: [{ id: '001', slug: 'auth', name: 'auth', agents: {} }]
+        })
+    );
+    return { tmpDir, harnessDir };
+}
+
+test('judge-record persists a verdict on the spec', () => {
+    const { tmpDir } = setupJudgeFixture();
+    judgeRecord(tmpDir, ['001', '--rule=a', '--verdict=pass', '--note=looks good']);
+
+    const rc = loadHarnessRC(tmpDir);
+    const spec = rc.activeSpecs.find(s => s.id === '001');
+    assertEqual(spec.judgeVerdicts.length, 1);
+    assertEqual(spec.judgeVerdicts[0].verdict, 'pass');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('review FAILs when a judge verdict is recorded as fail', () => {
+    const { tmpDir } = setupJudgeFixture();
+    judgeRecord(tmpDir, ['001', '--rule=a', '--verdict=fail', '--note=broke it']);
+
+    const rc = loadHarnessRC(tmpDir);
+    const result = judgeCheck(rc, '001');
+    assertEqual(result.status, 'FAIL', 'A recorded fail verdict should fail the Guardian check');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('review WARNs when a selected rule was never judged', () => {
+    const { tmpDir } = setupJudgeFixture();
+    // rule "a" never judged, rule "b" never judged either
+    const rc = loadHarnessRC(tmpDir);
+    const result = judgeCheck(rc, '001');
+    assertEqual(result.status, 'WARN', 'Unjudged selected rules should warn, not silently pass');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('review is clean (PASS) when all selected rules have a recorded pass verdict', () => {
+    const { tmpDir } = setupJudgeFixture();
+    judgeRecord(tmpDir, ['001', '--rule=a', '--verdict=pass']);
+    judgeRecord(tmpDir, ['001', '--rule=b', '--verdict=pass']);
+
+    const rc = loadHarnessRC(tmpDir);
+    const result = judgeCheck(rc, '001');
+    assertEqual(result.status, 'PASS');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Context command — single automatic entry point (search + symbol folded in)
+// ============================================================
+console.log('\n📦 Context (unified automatic entry point)');
+
+function captureConsole(fn) {
+    const original = console.log;
+    let out = '';
+    console.log = (...a) => { out += a.map(String).join(' ') + '\n'; };
+    try { fn(); } finally { console.log = original; }
+    return out;
+}
+
+test('harness context --symbol= finds a real definition without a separate command', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'src', 'auth.js'), 'function getUserByEmail(e) {}\n');
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({ harnessDir: '.harness' }));
+
+    const output = captureConsole(() => context(tmpDir, ['--symbol=getUserByEmail']));
+    assertTrue(output.includes('src/auth.js:1'), 'Context bundle should include the symbol location');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('harness context --symbol= reports cleanly when nothing matches', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.harnessrc'), JSON.stringify({ harnessDir: '.harness' }));
+
+    const output = captureConsole(() => context(tmpDir, ['--symbol=totallyMissingSymbol']));
+    assertTrue(output.includes('no matching symbol found'), 'Should report no match cleanly, not crash');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// This is a regression guard: help.js's MCP tool count went stale TWICE this
+// session (once for months pre-session at "13 tools" while the real count had
+// grown to 20, and again right after the memory_search/symbol/rules_list/
+// clarify tool-reduction pass, where help.js briefly still said "24 tools").
+// Nothing else would catch that drift, since help.js and harness-mcp.js are
+// two independent files with no shared source of truth for the count.
+test('help.js MCP tool count matches the actual TOOLS array in harness-mcp.js', () => {
+    const mcpSource = fs.readFileSync(path.join(__dirname, '..', 'bin', 'harness-mcp.js'), 'utf8');
+    const actualCount = (mcpSource.match(/\bname: 'harness_[a-zA-Z_]+'/g) || []).length;
+    assertTrue(actualCount > 0, 'Sanity check: should find at least one tool definition');
+
+    const helpOutput = captureConsole(() => showHelp());
+    const m = helpOutput.match(/MCP server \((\d+) tools\)/);
+    assertTrue(!!m, 'help.js should state the MCP tool count in this exact format');
+    assertEqual(parseInt(m[1], 10), actualCount, 'help.js tool count must match harness-mcp.js — update BOTH when adding/removing a tool');
+});
+
+// ============================================================
+// CLI dispatcher (runCLI / src/cli.js) — routing, not just command logic
+// ============================================================
+console.log('\n🧭 CLI Dispatcher (runCLI)');
+
+// Everything above tests command functions directly (rules(), advance(), ...),
+// which never exercises src/cli.js's switch/case routing. That routing was
+// rewritten twice this session (clarify+approve -> `gate`, judge-record ->
+// `judge record`) with nothing catching a typo'd case label. These tests
+// go through runCLI() itself, the same entry point bin/harness.js uses.
+
+test('runCLI routes "gate approve" to the approve command', () => {
+    const { tmpDir } = setupJudgeFixture();
+    runCLI(['gate', 'approve', '001'], { cwd: tmpDir });
+
+    const rc = loadHarnessRC(tmpDir);
+    assertTrue(!!rc.activeSpecs[0].approvals?.architect, 'gate approve should record an approval');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('runCLI routes "gate clarify" to the clarify command without mutating state', () => {
+    const { tmpDir } = setupAdvanceFixture('# spec\nno details at all');
+    const before = loadHarnessRC(tmpDir);
+
+    runCLI(['gate', 'clarify', '001'], { cwd: tmpDir });
+
+    const after = loadHarnessRC(tmpDir);
+    assertEqual(JSON.stringify(after), JSON.stringify(before), 'clarify is read-only, .harnessrc should be untouched');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('runCLI routes "judge record" to persist a verdict', () => {
+    const { tmpDir } = setupJudgeFixture();
+    runCLI(['judge', 'record', '001', '--rule=a', '--verdict=pass'], { cwd: tmpDir });
+
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].judgeVerdicts.length, 1);
+    assertEqual(rc.activeSpecs[0].judgeVerdicts[0].verdict, 'pass');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('runCLI routes "orchestrate claim" through to the orchestrate command', () => {
+    const { tmpDir } = setupJudgeFixture();
+    runCLI(['orchestrate', 'claim', '001', '--owner=test-agent'], { cwd: tmpDir });
+
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].claimedBy, 'test-agent');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('runCLI does not throw on an unknown command (falls back to help)', () => {
+    const { tmpDir } = setupJudgeFixture();
+    let threw = false;
+    try { runCLI(['this-command-does-not-exist'], { cwd: tmpDir }); } catch (e) { threw = true; }
+    assertFalse(threw, 'Unknown commands should print help, not throw');
+
     fs.rmSync(tmpDir, { recursive: true });
 });
 

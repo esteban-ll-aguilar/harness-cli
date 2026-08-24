@@ -4,7 +4,7 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
-**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 33/33 passing ✅
+**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 87/87 passing ✅
 
 ## ✨ Features
 
@@ -12,7 +12,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 - **📦 Monorepo Support** — Scans up to 3 levels deep (skips `node_modules`/build dirs), interactive selection
 - **🧠 RAG Memory (BM25)** — Real retrieval over the vault, zero dependencies, `harness memory search`
 - **🗂️ Obsidian Vault** — `.harness/` opens as a vault, with auto-generated Map of Content
-- **🔌 MCP Server** — `harness-mcp` exposes 13 tools to ANY MCP-compatible agent
+- **🔌 MCP Server** — `harness-mcp` exposes 20 tools to ANY MCP-compatible agent
 - **🤖 Self-Generating Agents** — 6 built-in agents auto-created at init + `harness agent new`
 - **📜 `harness rules`** — Project rules synced into AGENTS.md and enforced by the Guardian
 - **📌 Spec Lifecycle** — `harness advance` walks each spec through the 6 agents → done
@@ -22,7 +22,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 - **Tiered Memory**: Optimizes token usage without degrading results
 - **EARS Notation**: Unambiguous, parseable requirements
 - **CI/CD Gates**: Automated quality checks before production
-- **Self-Tested**: 19 automated tests covering core functionality
+- **Self-Tested**: 87 automated tests covering core functionality
 
 ## 🚀 Quick Start
 
@@ -69,6 +69,20 @@ harness agent new security-auditor
 
 # Dump full context for any AI tool
 harness context --spec=001
+
+# Lifecycle gates (work with advance)
+harness gate clarify 001              # unresolved ambiguities in spec.md?
+harness gate approve 001              # sign off a gated stage (default: architect)
+harness judge 001                     # self-assess up to 3 "must" rules against the diff
+harness judge record 001 --rule=<id> --verdict=pass
+
+# Coordinate parallel work across specs (no LLM calls from harness-cli itself)
+harness orchestrate status
+harness orchestrate claim 001
+
+# Symbol lookup + memory upkeep
+harness memory symbol getUserByEmail
+harness memory compact --days=30
 ```
 
 ## 🔌 AI Tool Selection
@@ -104,11 +118,17 @@ Wire the harness into Claude Code, Codex, OpenCode, Cursor, Windsurf… as an MC
 }
 ```
 
-Exposes 13 tools: `harness_init`, `harness_new_change`, `harness_status`,
-`harness_review`, `harness_context`, `harness_memory_search`,
-`harness_agent_run`, `harness_agent_list`, `harness_rules_add`,
-`harness_rules_list`, `harness_advance`, and more — all zero-dependency
-(stdio + JSON-RPC 2.0).
+Exposes 20 tools: `harness_init`, `harness_new_change`, `harness_status`,
+`harness_review`, `harness_context` (the automatic entry point — retrieval,
+symbol lookup, rules and state in one call), `harness_agent_run`,
+`harness_agent_list`, `harness_rules_add`, `harness_rules_preset`,
+`harness_advance`, `harness_approve`, `harness_orchestrate_status`,
+`harness_orchestrate_claim`, `harness_orchestrate_release`, and more — all
+zero-dependency (stdio + JSON-RPC 2.0). Deliberately NOT separate tools
+(folded into `harness_context`, or already redundant): `harness_memory_search`,
+`harness_memory_symbol`, `harness_rules_list`, `harness_clarify` (`harness_advance`
+already runs that check and reports it) — still available as CLI commands for
+a human exploring the vault directly.
 
 ## 🚀 Quick Start (Alternative)
 
@@ -223,9 +243,9 @@ Any AI tool can recognize these commands:
 | `/harness-interview` | Start requirement gathering |
 | `/harness-spec <name>` | Generate spec template |
 | `/harness-advance <id>` | Move a spec to the next agent stage |
-| `/harness-memory <query>` | Semantic search over the vault |
-| `/harness-rules` | Show rules that always apply |
-| `/harness-context` | Full optimized context bundle |
+| `/harness-context` | **The automatic entry point** — bundles rules, BM25 retrieval (`--query=`), symbol lookup (`--symbol=`), and project state in one call. An agent should call this proactively instead of remembering separate search/list commands. |
+| `/harness-gate clarify\|approve` | Lifecycle checkpoints for `advance` |
+| `/harness-judge` | Self-assess "must" rules against the diff |
 
 > Prefer the MCP server for a native experience: `harness-mcp`.
 
@@ -267,8 +287,39 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 
 - Zero-dependency BM25 (Okapi) index in `.harness/.index/`, rebuilt automatically when files change.
 - `harness memory search "auth token"` returns ranked docs with snippets.
-- `harness memory stats` shows corpus size; `harness memory index` forces a rebuild.
+- **Accent-insensitive**: search is diacritic-normalized (`página` ≟ `pagina`, `código` ≟
+  `codigo`) — important since this project's own rules/specs are often written in
+  Spanish. Snippets still show the original accented text; only matching is normalized.
+- `harness memory stats` shows corpus size; `harness memory index` forces a rebuild
+  (also rebuilds the symbol index, below).
 - The tiered loader (`tokenOptimizer.js`) uses the same index for ON_DEMAND context.
+- **Symbol lookup**: `harness memory symbol <name>` (or `harness context --symbol=<name>`)
+  finds where a function/class is defined in your PROJECT's own source (regex-based,
+  JS/TS/Python/Go/Java/Rust/Dart — no AST, no vector DB) — a different question than
+  the BM25 vault search answers. Falls back to substring matches when there's no exact
+  hit. Fingerprinted like the BM25 index — auto-rebuilds when source files change, no
+  manual reindex step required.
+- **Call-sites ("who uses X")**: an exact symbol match also lists every other place it's
+  referenced in the project (a live regex scan, excluding the definition line itself) —
+  useful before touching or deleting something. Bundled into the same lookup, not a
+  separate command to remember.
+- **Memory compaction**: `harness memory compact [--days=N]` (default 30) archives old
+  session logs into `.harness/.archive/session-logs/` (kept on disk, never deleted, just
+  out of the search index) and writes one grouped digest back — keeps `memory search`
+  relevant as a project accumulates history. Idempotent.
+
+### Guardian self-judge
+
+`harness-cli` never calls an LLM itself, so it can't judge rule compliance on its own —
+but it can build the judge prompt and enforce the recorded verdict:
+
+- `harness judge <specId>` prints up to 3 enabled "must" rules plus the spec's diff, for
+  whichever agent is already in the session to self-assess.
+- `harness judge record <specId> --rule=<id> --verdict=pass|fail|partial --note="..."`
+  persists the verdict.
+- `harness review`'s Guardian enforces it: a recorded `fail` FAILs the gate; a
+  judge-selected rule with no recorded verdict at all WARNs "not yet judged" — never
+  silently treated as passing.
 
 ### Agents
 
@@ -290,11 +341,43 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 - Opt out at init time with `harness init --no-default-rules`.
 - `harness rules add "Every PR must include a test" --severity=must --tag=testing`
 - Rules are synced into `AGENTS.md` (brain + root) and verified by `harness review`.
+- **Scoped rules**: `--glob=<pattern>` (e.g. `--glob="src/pages/**"`) limits a rule to
+  matching files; omit it for a rule that always applies. Preview what applies to a file
+  with `harness context --for-file=<path>`.
+- **Guardian drift check**: `harness review` also warns when the working tree touches a
+  file that isn't referenced anywhere in the active spec's `tasks.md` — a cheap,
+  deterministic heads-up (never a hard gate) that the code may have drifted from what was
+  planned.
 
 ### Lifecycle
 
 - `harness advance <specId>` walks a spec: interviewer → architect → tester → coder → reviewer → guardian → done
 - `harness advance <specId> --to=coder` jumps; `--back` steps backward.
+
+### Clarify gate & approval checkpoints
+
+- **Clarify gate**: `harness advance` blocks the architect→tester transition while the
+  spec's `spec.md` still looks ambiguous (no mention of performance, error handling,
+  security or scale). Check anytime with `harness gate clarify <specId>`; override with
+  `harness advance <specId> --force` (logged as a conscious decision, never silent).
+- **Approval checkpoints**: stages listed in `.harnessrc.quality.approvalGates` (default
+  `['architect']`) can't be marked done until a human runs
+  `harness gate approve <specId> [--stage=<stage>]`. Approving is idempotent — re-approving an
+  already-approved stage is a no-op.
+
+### Parallel spec orchestration
+
+`harness-cli` never calls an LLM itself (zero dependencies, AI-client-agnostic by
+design) — "automatic parallel agent work" means coordinating **several independent
+external agent sessions** (e.g. two Claude Code sessions) working **different specs of
+the same project** at once, without colliding:
+
+- `harness orchestrate status` — lists active specs with their stage and claim owner (or "free").
+- `harness orchestrate claim <specId> [--owner=<name>]` — reserves a spec. Idempotent for
+  the same owner; refuses a fresh claim held by someone else; takes over a stale (>2h) claim.
+- `harness orchestrate release <specId>` — frees a claim. Idempotent.
+- All `.harnessrc` writes on this path go through a zero-dependency directory-lock
+  (`withHarnessRCLock`) so concurrent processes can't corrupt shared state.
 
 ### Flow integrity & conscious omission
 
@@ -355,6 +438,7 @@ npm test
 #   ✅ tokenize strips markdown noise and stopwords
 #   ✅ buildIndex + search ranks the relevant document first
 #   ✅ index fingerprint changes when a file changes
+#   ✅ accent-insensitive: "pagina"/"página" match each other both ways
 # 📦 AI Adapter
 #   ✅ getToolConfig does not crash on non-JSON hook scripts
 #   ✅ getToolConfig parses valid JSON configs
@@ -371,7 +455,31 @@ npm test
 #   ✅ applyPreset seeds the senior rule pack and syncs into AGENTS.md
 #   ✅ applyPreset is idempotent — a second call skips already-seeded rules
 #   ✅ applyPreset returns an error for an unknown preset name
-# Results: 33 passed, 0 failed
+# 📦 Glob Matching / 📜 Rule Scoping
+#   ✅ matchGlob supports **, *, and rule --glob= scoping (harness context --for-file=)
+# 🔬 Spec Drift Detection
+#   ✅ Guardian warns when code touches files outside the spec's tasks.md
+# 🔒 Concurrent Safety / ❓ Ambiguity Detector
+#   ✅ withHarnessRCLock serializes concurrent .harnessrc writes, recovers stale locks
+#   ✅ detectAmbiguities flags missing performance/error/security/scale coverage
+# 🚦 Lifecycle Gating (clarify + approval)
+#   ✅ advance blocks architect without approval, tester without clarification
+#   ✅ harness gate approve / --force unblock (and log) the override
+# 🎛️  Parallel Spec Orchestration
+#   ✅ claim/release protocol is idempotent, refuses fresh claims, steals stale ones
+# 🗜️  Memory Compaction / 🔎 Symbol Index
+#   ✅ archives old logs into a digest, excludes them from the rebuilt BM25 index
+#   ✅ finds JS/Python function & class definitions, falls back to substring matches
+#   ✅ finds call sites ("who uses X"), excludes the definition line itself
+# ⚖️  Guardian Self-Judge
+#   ✅ judge selects up to 3 must rules; review FAILs on a recorded fail verdict,
+#      WARNs on an unjudged one, PASSes when all are recorded as pass
+# 📦 Context (unified automatic entry point)
+#   ✅ --symbol= finds a real definition and reports cleanly when nothing matches
+# 🧭 CLI Dispatcher (runCLI)
+#   ✅ gate/judge/orchestrate routing works end-to-end, not just the underlying functions
+#   ✅ help.js's MCP tool count is asserted equal to harness-mcp.js's real TOOLS array
+# Results: 87 passed, 0 failed
 ```
 
 ## 📄 License

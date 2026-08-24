@@ -1,15 +1,18 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, ensureDir, listFiles } = require('../utils/fileUtils.js');
+const { getHarnessDir, ensureDir, listFiles, parseFrontmatter, timestamp } = require('../utils/fileUtils.js');
 const { buildIndex, search, loadIndex, saveIndex } = require('../utils/retrieval.js');
+const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findReferences } = require('../utils/symbolIndex.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
  *
- *   harness memory index             → (re)build the BM25 index
+ *   harness memory index             → (re)build the BM25 + symbol index
  *   harness memory search <query>    → retrieve relevant knowledge
+ *   harness memory symbol <name>     → find where a function/class is defined
  *   harness memory obsidian          → regenerate Obsidian MOC (Map of Content)
  *   harness memory stats             → corpus statistics
+ *   harness memory compact [--days=] → archive old session logs into a digest
  */
 
 function memory(cwd, args) {
@@ -38,16 +41,147 @@ function memory(cwd, args) {
         case 'stats':
             stats(harnessDir);
             break;
+        case 'compact':
+            compactCmd(cwd, harnessDir, args.slice(1));
+            break;
+        case 'symbol':
+        case 'symbols':
+            symbolCmd(cwd, harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
 
-  harness memory index              Rebuild the BM25 semantic index
+  harness memory index              Rebuild the BM25 semantic index + symbol index
   harness memory search <query>     Search the whole vault (brain + specs + memory)
+  harness memory symbol <name>      Find where a function/class is defined in your source
   harness memory obsidian           Regenerate the Obsidian Map of Content
   harness memory stats              Show corpus statistics
+  harness memory compact [--days=N] Archive session logs older than N days (default 30)
+                                    into a digest — keeps search relevant, never deletes data
 `);
     }
+}
+
+function symbolCmd(cwd, harnessDir, args) {
+    const name = args[0];
+    if (!name) {
+        console.log('❌ Usage: harness memory symbol <name>');
+        return;
+    }
+    const index = getSymbolIndex(cwd, harnessDir);
+    const { exact, partial } = findSymbol(index, name);
+    if (exact.length > 0) {
+        console.log(`\n🔎 "${name}" — ${exact.length} definition(s):`);
+        for (const o of exact) console.log(`   ${o.file}:${o.line}  (${o.kind})`);
+
+        const refs = findReferences(cwd, name, exact);
+        if (refs.length > 0) {
+            console.log(`\n📎 Referenced in ${refs.length} other place(s):`);
+            for (const r of refs.slice(0, 15)) console.log(`   ${r.file}:${r.line}`);
+            if (refs.length > 15) console.log(`   … (+${refs.length - 15} more)`);
+        } else {
+            console.log('\n📎 No other references found (dead code, or only called dynamically).');
+        }
+        console.log('');
+        return;
+    }
+    if (partial.length > 0) {
+        console.log(`\n🔎 No exact match for "${name}". Closest matches:`);
+        for (const o of partial.slice(0, 10)) console.log(`   ${o.symbol}  →  ${o.file}:${o.line}  (${o.kind})`);
+        console.log('');
+        return;
+    }
+    console.log(`\n🔎 No symbol matching "${name}" found.\n`);
+}
+
+function compactCmd(cwd, harnessDir, args) {
+    const daysFlag = args.find(a => a.startsWith('--days='));
+    const days = daysFlag ? parseInt(daysFlag.slice(7), 10) : 30;
+    const result = compactSessionLogs(cwd, harnessDir, { days });
+
+    if (result.archived === 0) {
+        console.log(`✅ Nothing to compact — no session logs older than ${days} day(s).`);
+        return;
+    }
+
+    console.log(`🗜️  Compacted ${result.archived} log(s) older than ${days} day(s).`);
+    console.log(`   Archived to: .harness/.archive/session-logs/`);
+    console.log(`   Digest written: ${path.relative(cwd, result.digestPath)}`);
+    console.log(`   BM25 index rebuilt.`);
+}
+
+/**
+ * Archive session logs older than `days` into `.harness/.archive/session-logs/`
+ * (deliberately OUTSIDE buildIndex's brain/specs/memory roots, so search stays
+ * relevant) and write one grouped digest back into `memory/session-logs/`.
+ * Never deletes data. Idempotent: nothing eligible → { archived: 0 }.
+ */
+function compactSessionLogs(cwd, harnessDir, { days = 30 } = {}) {
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    if (!fs.existsSync(logsDir)) return { archived: 0 };
+
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const files = fs.readdirSync(logsDir).filter(f => f.endsWith('.md') && !f.startsWith('digest-'));
+
+    const eligible = [];
+    for (const f of files) {
+        const fp = path.join(logsDir, f);
+        const content = fs.readFileSync(fp, 'utf8');
+        const { meta } = parseFrontmatter(content);
+        let ts = meta.date ? Date.parse(meta.date) : NaN;
+        if (Number.isNaN(ts)) {
+            try { ts = fs.statSync(fp).mtimeMs; } catch (e) { continue; }
+        }
+        if (ts < cutoff) eligible.push({ file: f, fp, meta, ts });
+    }
+
+    if (eligible.length === 0) return { archived: 0 };
+
+    const groups = {};
+    for (const e of eligible) {
+        const key = `${e.meta.event || 'unknown'}::${e.meta.spec || '-'}`;
+        if (!groups[key]) groups[key] = { event: e.meta.event || 'unknown', spec: e.meta.spec || '-', count: 0, min: e.ts, max: e.ts };
+        groups[key].count++;
+        groups[key].min = Math.min(groups[key].min, e.ts);
+        groups[key].max = Math.max(groups[key].max, e.ts);
+    }
+
+    const archiveDir = path.join(harnessDir, '.archive', 'session-logs');
+    ensureDir(archiveDir);
+    for (const e of eligible) {
+        fs.renameSync(e.fp, path.join(archiveDir, e.file));
+    }
+
+    const fromTs = Math.min(...eligible.map(e => e.ts));
+    const toTs = Math.max(...eligible.map(e => e.ts));
+    const fromDate = new Date(fromTs).toISOString().slice(0, 10);
+    const toDate = new Date(toTs).toISOString().slice(0, 10);
+
+    const lines = [
+        '---',
+        `date: ${timestamp()}`,
+        'agent: harness-cli',
+        'event: memory-compacted',
+        '---',
+        '',
+        `# Session log digest — ${fromDate} to ${toDate}`,
+        '',
+        `Archived ${eligible.length} log(s) older than ${days} day(s) into \`.harness/.archive/session-logs/\` (kept on disk, out of the search index).`,
+        '',
+        '| Event | Spec | Count | Date range |',
+        '|---|---|---|---|',
+        ...Object.values(groups).map(g =>
+            `| ${g.event} | ${g.spec} | ${g.count} | ${new Date(g.min).toISOString().slice(0, 10)} → ${new Date(g.max).toISOString().slice(0, 10)} |`)
+    ];
+
+    const digestPath = path.join(logsDir, `digest-${fromDate}-${toDate}.md`);
+    fs.writeFileSync(digestPath, lines.join('\n') + '\n');
+
+    const index = buildIndex(harnessDir);
+    saveIndex(harnessDir, index);
+
+    return { archived: eligible.length, digestPath, groups: Object.values(groups) };
 }
 
 function rebuild(cwd, harnessDir) {
@@ -55,7 +189,11 @@ function rebuild(cwd, harnessDir) {
     saveIndex(harnessDir, index);
     console.log(`🧠 Index rebuilt: ${index.numDocs} documents, ${Object.keys(index.df).length} unique terms`);
     console.log(`📁 ${path.join(harnessDir, '.index', 'harness-index.json')}`);
-    console.log('💡 Tip: open this folder as an Obsidian vault, then use `harness memory search`.');
+
+    const symbolIndex = buildSymbolIndex(cwd);
+    saveSymbolIndex(harnessDir, symbolIndex);
+    console.log(`🔎 Symbol index rebuilt: ${symbolIndex.numSymbols} symbols`);
+    console.log('💡 Tip: open this folder as an Obsidian vault, use `harness memory search`, or `harness memory symbol <name>`.');
 }
 
 function doSearch(harnessDir, query) {
@@ -157,4 +295,4 @@ function generateObsidian(cwd, harnessDir) {
     console.log(`   Regenerate with: harness memory obsidian`);
 }
 
-module.exports = { memory, generateObsidian };
+module.exports = { memory, generateObsidian, compactSessionLogs };

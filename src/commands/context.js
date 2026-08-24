@@ -2,14 +2,23 @@ const fs = require('fs');
 const path = require('path');
 const { getHarnessDir, loadHarnessRC } = require('../utils/fileUtils.js');
 const { buildPrompt, TIERS } = require('../utils/tokenOptimizer.js');
+const { rulesForFile } = require('./rules.js');
+const { getSymbolIndex, findSymbol, findReferences } = require('../utils/symbolIndex.js');
 
 /**
- * `harness context` — dump the full optimized context bundle.
- * Give this to any AI tool to onboard it to the project instantly.
+ * `harness context` — THE single entry point an agent should call
+ * automatically before/while working, instead of remembering to invoke
+ * separate search/lookup commands by name. Bundles: the ALWAYS tier
+ * (AGENTS.md — which already contains every project rule, so there's no
+ * separate "list the rules" step), project state, optional BM25 retrieval,
+ * optional symbol lookup, optional file-scoped rules, and optional spec
+ * artifacts — all in one call.
  *
  *   harness context                      ALWAYS tier + project state
  *   harness context --spec=<id>          + that spec's artifacts
  *   harness context --query=<text>       + BM25 retrieval from the vault
+ *   harness context --symbol=<name>      + where it's defined AND referenced
+ *   harness context --for-file=<path>    + rules scoped to that file (--glob)
  *   harness context --file=<path>        write the bundle to a file
  */
 
@@ -24,6 +33,8 @@ function context(cwd, args) {
     for (const a of args) {
         if (a.startsWith('--spec=')) opts.spec = a.slice(7);
         else if (a.startsWith('--query=')) opts.query = a.slice(8);
+        else if (a.startsWith('--symbol=')) opts.symbol = a.slice(9);
+        else if (a.startsWith('--for-file=')) opts.forFile = a.slice(11);
         else if (a.startsWith('--file=')) opts.file = a.slice(7);
     }
 
@@ -49,7 +60,40 @@ Active specs:
 ${active}
 Agents: ${Object.keys(rc.agents || {}).join(', ') || 'default 6'}`);
 
-    // 3. Spec context
+    // 3. Rules scoped to a specific file
+    if (opts.forFile) {
+        const scoped = rulesForFile(rc, opts.forFile);
+        const lines = scoped.length
+            ? scoped.map(r => `- **${r.severity.toUpperCase()}** (${r.tag}${r.glob ? `, scope: ${r.glob}` : ''}): ${r.title}`)
+            : ['(no rules apply to this file)'];
+        parts.push(`--- RULES FOR ${opts.forFile} ---\n${lines.join('\n')}`);
+    }
+
+    // 4. Symbol lookup: where X is defined AND where it's used ("who calls
+    // this" matters before touching/removing it — bundled in the same call
+    // rather than a separate lookup an agent has to remember to make).
+    if (opts.symbol) {
+        const symIndex = getSymbolIndex(cwd, harnessDir);
+        const { exact, partial } = findSymbol(symIndex, opts.symbol);
+        const hits = exact.length ? exact : partial;
+        const lines = hits.length
+            ? hits.slice(0, 10).map(o => `- ${o.symbol || opts.symbol}  →  ${o.file}:${o.line} (${o.kind})`)
+            : ['(no matching symbol found)'];
+
+        if (exact.length > 0) {
+            const refs = findReferences(cwd, opts.symbol, exact);
+            lines.push('');
+            lines.push(refs.length > 0
+                ? `Referenced in ${refs.length} other place(s):`
+                : 'No other references found (dead code, or only called dynamically).');
+            for (const r of refs.slice(0, 15)) lines.push(`- ${r.file}:${r.line}`);
+            if (refs.length > 15) lines.push(`… (+${refs.length - 15} more)`);
+        }
+
+        parts.push(`--- SYMBOL "${opts.symbol}" ---\n${lines.join('\n')}`);
+    }
+
+    // 5. Spec context
     if (opts.spec) {
         const dir = specs.find(s => s.startsWith(opts.spec));
         if (dir) {

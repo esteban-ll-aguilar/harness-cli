@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { getHarnessDir, loadHarnessRC, writeHarnessRC, timestamp, listFiles } = require('../utils/fileUtils.js');
+const { detectAmbiguities } = require('../utils/ambiguityDetector.js');
 
 /**
  * `harness advance <specId>` — walk a spec through the 6-agent lifecycle.
@@ -65,6 +66,7 @@ function advance(cwd, args) {
 
     const toFlag = args.find(a => a.startsWith('--to='));
     const back = args.includes('--back');
+    const force = args.includes('--force');
     const to = toFlag ? toFlag.split('=')[1] : null;
 
     if (to) {
@@ -77,14 +79,14 @@ function advance(cwd, args) {
     }
 
     if (back) {
-        step(cwd, harnessDir, rc, spec, -1);
+        step(cwd, harnessDir, rc, spec, -1, { force });
         return;
     }
 
-    step(cwd, harnessDir, rc, spec, 1);
+    step(cwd, harnessDir, rc, spec, 1, { force });
 }
 
-function step(cwd, harnessDir, rc, spec, delta) {
+function step(cwd, harnessDir, rc, spec, delta, opts = {}) {
     const agents = spec.agents || {};
     const doneCount = STAGES.filter(a => agents[a] === 'done').length;
     const omitted = STAGES.filter(a => agents[a] === 'omitted');
@@ -102,6 +104,10 @@ function step(cwd, harnessDir, rc, spec, delta) {
             completeSpec(cwd, harnessDir, rc, spec, omitted);
             return;
         }
+
+        if (checkApprovalGate(rc, spec, next)) return;
+        if (next === 'tester' && agents.architect === 'done' && checkClarifyGate(cwd, harnessDir, spec, opts)) return;
+
         agents[next] = 'done';
         spec.status = STAGE_STATUS[next];
         affectedStage = next;
@@ -127,6 +133,70 @@ function step(cwd, harnessDir, rc, spec, delta) {
     }
 
     printState(spec);
+}
+
+/**
+ * True (and blocks) when `stage` is in `.harnessrc.quality.approvalGates`
+ * (default `['architect']`) and hasn't been approved yet via
+ * `harness gate approve <specId> --stage=<stage>`.
+ */
+function checkApprovalGate(rc, spec, stage) {
+    const gates = rc.quality?.approvalGates || ['architect'];
+    if (!gates.includes(stage)) return false;
+    if (spec.approvals && spec.approvals[stage]) return false;
+
+    console.log(`\n🛑 Approval required before "${stage}" can be marked done.`);
+    console.log(`   Run: harness gate approve ${spec.id} --stage=${stage}\n`);
+    return true;
+}
+
+/**
+ * True (and blocks, unless --force) when the spec's spec.md still has
+ * unresolved ambiguities right as the flow is about to move from architect
+ * into tester. With --force, proceeds and logs the override.
+ */
+function checkClarifyGate(cwd, harnessDir, spec, opts) {
+    const specDir = findSpecDir(harnessDir, spec.id);
+    if (!specDir) return false;
+    const specMdPath = path.join(specDir, 'spec.md');
+    if (!fs.existsSync(specMdPath)) return false;
+
+    const findings = detectAmbiguities(fs.readFileSync(specMdPath, 'utf8'));
+    if (findings.length === 0) return false;
+
+    if (opts.force) {
+        logAmbiguityOverride(cwd, harnessDir, spec, findings);
+        return false;
+    }
+
+    console.log(`\n🛑 Clarify gate: spec.md still has ${findings.length} unresolved area(s):\n`);
+    findings.forEach(f => console.log('  ' + f));
+    console.log(`\n   Fix spec.md, run \`harness gate clarify ${spec.id}\` to re-check, or override with:`);
+    console.log(`   harness advance ${spec.id} --force   (logged as a conscious decision)\n`);
+    return true;
+}
+
+function logAmbiguityOverride(cwd, harnessDir, spec, findings) {
+    const log = `---
+date: ${timestamp()}
+agent: harness-cli
+event: ambiguity-override
+spec: ${spec.id}-${spec.slug}
+---
+
+# Clarify gate overridden — ${spec.name}
+
+Advanced from architect to tester with \`--force\` despite ${findings.length}
+unresolved ambiguity area(s):
+
+${findings.map(f => `${f}`).join('\n')}
+
+This is an explicit, recorded decision — not a silent skip.
+`;
+    fs.appendFileSync(
+        path.join(harnessDir, 'memory', 'session-logs', `ambiguity-override-${spec.id}-${Date.now()}.md`),
+        log
+    );
 }
 
 /**

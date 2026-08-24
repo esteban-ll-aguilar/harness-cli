@@ -1,0 +1,74 @@
+schema: spec-driven
+
+context: |
+  Project: @esteban-ll-aguilar/harness-cli — a zero-dependency Node.js CLI (Node >=18.17)
+  published to npm. It is itself a multi-agent SDD-BDD-TDD harness for AI coding tools
+  (Claude Code, Codex, OpenCode, Cursor, Kimi, Qwen, DeepSeek, Copilot). This OpenSpec
+  usage is meta: we use OpenSpec to plan changes to harness-cli's OWN source, which is
+  a separate system from the `.harness/` scaffolding harness-cli generates for ITS users
+  (don't confuse the two — this repo's openspec/ is about developing the tool itself).
+
+  Tech stack: plain CommonJS (require/module.exports), no build step, no TypeScript,
+  no runtime dependencies (package.json has zero "dependencies"). Entry points:
+  bin/harness.js (CLI), bin/harness-mcp.js (zero-dep stdio JSON-RPC 2.0 MCP server).
+
+  Structure:
+  - src/cli.js — command dispatcher (switch/case on argv[0])
+  - src/commands/*.js — one file per command (init, rules, interview, advance, review,
+    new-change, status, spec, memory, context, agent, test), each exports a plain function
+    module.exports = { fnName }, called from cli.js as fn(cwd, subArgs)
+  - src/utils/*.js — shared helpers (fileUtils, languageDetector, retrieval [BM25 RAG,
+    zero-dep], testRunner, tokenOptimizer, aiAdapter, toolSetup, checkbox)
+  - src/data/*.js — static curated data (default-rules.js: PRESETS.senior array)
+  - src/templates/** — Markdown/config templates copied into a user's project by
+    `harness init` (brain/AGENTS.md, brain/constitution.md, per-tool configs)
+  - tests/runner.js — the ENTIRE test suite (no framework, no deps): a hand-rolled
+    test()/assertEqual()/assertTrue()/assertFalse() harness, run with `node tests/runner.js`
+    or `npm test`. New behavior MUST get tests here, following the existing style exactly
+    (fs.mkdtempSync('/tmp/harness-test-') fixtures, cleaned up with fs.rmSync at the end
+    of each test). Currently 33 tests, all passing — never leave it red.
+
+  Domain model (what harness-cli's OWN users get from `.harness/`):
+  - `.harnessrc` (JSON at project root) — the single source of truth for project state:
+    languages, tools, quality thresholds, activeSpecs/completedSpecs, and `rules: []`
+    (project rules, each {id, title, severity: must|should, tag, enabled, createdAt}).
+  - `.harness/brain/constitution.md` — immutable project law (seeded once at init).
+  - `.harness/brain/rules/<id>.md` + AGENTS.md "## 13. Project Rules" section — mutable
+    rules, added via `harness rules add`, synced via `syncRules()`, enforced (text-presence
+    only, today) by `harness rules check` / `harness review`.
+  - `.harness/specs/NNN-feature/{spec.md,plan.md,tasks.md,features/*.feature,tests/}` —
+    one folder per feature, walked through 6 stages by `harness advance`:
+    interviewer → architect → tester → coder → reviewer → guardian (STAGES array in
+    src/commands/advance.js). Stage state lives in `.harnessrc.activeSpecs[].stages`.
+    Skipping a stage marks it `omitted` (never silently skipped) and logs why.
+  - `.harness/memory/session-logs/*.md` — timestamped Markdown event log, also the BM25
+    retrieval corpus (with brain/ and specs/) — see src/utils/retrieval.js.
+  - `harness review` (the "Guardian") — a checklist function in src/commands/review.js
+    that prints PASS/FAIL/WARN/ERROR per check and exits 1 on any FAIL/ERROR. Also runs
+    the spec's real tests via src/utils/testRunner.js (detects Jest/Vitest/pytest/Go/Cargo
+    output, never fakes a pass) — this project's own constitution.md calls this out
+    explicitly: "no fake gates".
+  - `harness-mcp` — exposes most commands as MCP tools (TOOLS array + TOOL_NAME_TO_COMMAND
+    map in bin/harness-mcp.js), by shelling into the same CLI functions in-process.
+
+  Non-negotiables for any change proposed here (from this repo's own tests + style):
+  - Zero new npm dependencies, ever.
+  - CommonJS only (no ESM, no TS, no build step) — matches every existing file.
+  - Every new command/behavior gets a real test in tests/runner.js (TDD: write the
+    failing test first when practical), following the existing test style exactly.
+  - Follow the has-precedent pattern: look at how an existing, similar command
+    (e.g. src/commands/rules.js's `applyPreset`/`syncRules`, or advance.js's STAGES
+    machine) is structured before inventing a new shape.
+  - `.harnessrc` schema changes must be additive/backward compatible — existing
+    `.harnessrc` files (already on disk in users' projects) must keep working
+    unchanged after an upgrade (no required new fields, sane defaults for missing ones).
+  - Keep console output style consistent (emoji-prefixed section headers, PASS/FAIL/WARN
+    icons, `❌`/`✅`/`⚠️`/`💥`) — see review.js and rules.js for the existing vocabulary.
+
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section listing what this change explicitly does NOT do
+  tasks:
+    - Break tasks into chunks that touch 1-3 files each and are independently testable
+    - Every task that adds behavior must have a matching "write/extend test in tests/runner.js" task

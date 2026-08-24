@@ -6,10 +6,25 @@
  * Zero-dependency stdio transport speaking the Model Context Protocol
  * (JSON-RPC 2.0 over stdin/stdout).
  *
- *   Tools: harness_init, harness_new_change, harness_status,
- *          harness_review, harness_context, harness_memory_search,
+ *   Tools: harness_init, harness_new_change, harness_status, harness_review,
+ *          harness_context (the automatic entry point — bundles search,
+ *          symbol lookup, rules, project state, and spec artifacts in one
+ *          call, so nobody has to remember which lookup command to use),
  *          harness_agent_run, harness_rules_add, harness_rules_preset,
- *          harness_advance, harness_test
+ *          harness_advance, harness_test, harness_approve (a deliberate
+ *          human action, not automated away), harness_orchestrate_status,
+ *          harness_orchestrate_claim, harness_orchestrate_release,
+ *          harness_memory_compact, harness_judge, harness_judge_record
+ *
+ *   Deliberately NOT exposed as separate tools (folded into harness_context,
+ *   which an agent should call automatically instead of remembering a
+ *   specific lookup command by name): harness_memory_search,
+ *   harness_memory_symbol, harness_rules_list. Also not exposed:
+ *   harness_clarify — `harness_advance` already runs that check internally
+ *   and reports it, so a separate pre-check call is redundant. All of these
+ *   remain available as CLI commands for a human exploring the vault
+ *   directly (`harness memory search`, `harness memory symbol`, `harness
+ *   rules list`, `harness gate clarify`).
  */
 
 const path = require('path');
@@ -24,15 +39,20 @@ const TOOL_NAME_TO_COMMAND = {
     harness_review: ['review'],
     harness_spec: ['spec'],
     harness_context: ['context'],
-    harness_memory_search: ['memory', 'search'],
     harness_memory_index: ['memory', 'index'],
     harness_agent_run: ['agent', 'run'],
     harness_agent_list: ['agent', 'list'],
     harness_rules_add: ['rules', 'add'],
-    harness_rules_list: ['rules', 'list'],
     harness_rules_preset: ['rules', 'preset'],
     harness_advance: ['advance'],
-    harness_test: ['test']
+    harness_test: ['test'],
+    harness_approve: ['gate', 'approve'],
+    harness_orchestrate_status: ['orchestrate', 'status'],
+    harness_orchestrate_claim: ['orchestrate', 'claim'],
+    harness_orchestrate_release: ['orchestrate', 'release'],
+    harness_memory_compact: ['memory', 'compact'],
+    harness_judge: ['judge'],
+    harness_judge_record: ['judge', 'record']
 };
 
 const TOOLS = [
@@ -80,23 +100,16 @@ const TOOLS = [
     },
     {
         name: 'harness_context',
-        description: 'Get the full tiered context bundle (AGENTS, constitution, state, optional spec/query).',
+        description: 'THE tool to call automatically before/while working — bundles AGENTS.md (which already includes every project rule, so there is no separate "list rules" step), constitution, project state, and — when given — BM25 retrieval (query), symbol lookup (symbol), spec artifacts (spec), and file-scoped rules (forFile). Call this proactively; do not wait to be asked to search or look something up.',
         inputSchema: {
             type: 'object',
             properties: {
                 spec: { type: 'string', description: 'Optional spec id, e.g. 001' },
-                query: { type: 'string', description: 'Optional retrieval query' }
+                query: { type: 'string', description: 'Optional free-text retrieval query (BM25 over brain+specs+memory)' },
+                symbol: { type: 'string', description: 'Optional symbol name — finds where a function/class is defined in the project source' },
+                forFile: { type: 'string', description: 'Optional file path — includes only the rules scoped to it (via --glob)' }
             },
             required: []
-        }
-    },
-    {
-        name: 'harness_memory_search',
-        description: 'Semantic search over the .harness vault (brain + specs + memory).',
-        inputSchema: {
-            type: 'object',
-            properties: { query: { type: 'string', description: 'Search query' } },
-            required: ['query']
         }
     },
     {
@@ -119,11 +132,6 @@ const TOOLS = [
     {
         name: 'harness_agent_list',
         description: 'List the agent roster.',
-        inputSchema: { type: 'object', properties: {}, required: [] }
-    },
-    {
-        name: 'harness_rules_list',
-        description: 'List project + constitution rules.',
         inputSchema: { type: 'object', properties: {}, required: [] }
     },
     {
@@ -150,14 +158,85 @@ const TOOLS = [
     },
     {
         name: 'harness_advance',
-        description: 'Advance a spec through the 6-agent lifecycle. Jumping with to= records intermediate stages as omitted.',
+        description: 'Advance a spec through the 6-agent lifecycle. Jumping with to= records intermediate stages as omitted. Blocked by the approval gate (architect, by default) and the clarify gate (architect->tester) unless force=true.',
         inputSchema: {
             type: 'object',
             properties: {
                 id: { type: 'string', description: 'Spec id, e.g. 001' },
-                to: { type: 'string', description: 'Jump to a stage: interviewer..guardian' }
+                to: { type: 'string', description: 'Jump to a stage: interviewer..guardian' },
+                force: { type: 'boolean', description: 'Override the clarify gate (unresolved spec.md ambiguities) — logged, not silent' }
             },
             required: ['id']
+        }
+    },
+    {
+        name: 'harness_approve',
+        description: 'Record explicit human approval for a stage (default: architect), unblocking harness_advance past it. Idempotent.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string', description: 'Spec id, e.g. 001' },
+                stage: { type: 'string', description: 'Stage to approve (default: the first configured approval gate)' }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'harness_orchestrate_status',
+        description: 'List active specs with their stage and claim state, for dispatching parallel work across independent agent sessions.',
+        inputSchema: { type: 'object', properties: {}, required: [] }
+    },
+    {
+        name: 'harness_orchestrate_claim',
+        description: 'Reserve a spec so another parallel agent session does not duplicate the work. Idempotent for the same owner; refuses a fresh claim held by someone else; takes over a stale (>2h) claim.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string', description: 'Spec id, e.g. 001' },
+                owner: { type: 'string', description: 'Claim owner id (default: hostname:pid)' }
+            },
+            required: ['id']
+        }
+    },
+    {
+        name: 'harness_orchestrate_release',
+        description: 'Release a spec claim. Idempotent — releasing an unclaimed spec succeeds as a no-op.',
+        inputSchema: {
+            type: 'object',
+            properties: { id: { type: 'string', description: 'Spec id, e.g. 001' } },
+            required: ['id']
+        }
+    },
+    {
+        name: 'harness_memory_compact',
+        description: 'Archive session logs older than N days (default 30) into a digest — keeps memory search relevant, never deletes data.',
+        inputSchema: {
+            type: 'object',
+            properties: { days: { type: 'number', description: 'Age threshold in days (default 30)' } },
+            required: []
+        }
+    },
+    {
+        name: 'harness_judge',
+        description: 'Build a self-assessment prompt (up to 3 enabled "must" rules + the spec diff) for the calling agent to answer. harness-cli never calls an LLM itself.',
+        inputSchema: {
+            type: 'object',
+            properties: { id: { type: 'string', description: 'Spec id, e.g. 001' } },
+            required: ['id']
+        }
+    },
+    {
+        name: 'harness_judge_record',
+        description: 'Record a self-assessment verdict for a rule on a spec. A recorded "fail" will FAIL harness_review\'s Guardian check until re-judged as pass.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                id: { type: 'string', description: 'Spec id, e.g. 001' },
+                rule: { type: 'string', description: 'Rule id (from harness_judge\'s output)' },
+                verdict: { type: 'string', description: 'pass, fail, or partial' },
+                note: { type: 'string', description: 'Optional justification' }
+            },
+            required: ['id', 'rule', 'verdict']
         }
     },
     {
@@ -258,13 +337,14 @@ rl.on('line', (line) => {
             if (input.lang) args.push(`--lang=${input.lang}`);
         } else if (tool === 'harness_spec') {
             args.push(input.name);
-        } else if (tool === 'harness_memory_search' || tool === 'harness_agent_run') {
-            if (input.query) args.push(input.query);
+        } else if (tool === 'harness_agent_run') {
             if (input.name) args.push(input.name);
             if (input.spec) args.push(input.spec);
         } else if (tool === 'harness_context') {
             if (input.spec) args.push(`--spec=${input.spec}`);
             if (input.query) args.push(`--query=${input.query}`);
+            if (input.symbol) args.push(`--symbol=${input.symbol}`);
+            if (input.forFile) args.push(`--for-file=${input.forFile}`);
         } else if (tool === 'harness_rules_add') {
             args.push(input.text);
             if (input.severity) args.push(`--severity=${input.severity}`);
@@ -274,12 +354,28 @@ rl.on('line', (line) => {
         } else if (tool === 'harness_advance') {
             args.push(input.id);
             if (input.to) args.push(`--to=${input.to}`);
+            if (input.force) args.push('--force');
         } else if (tool === 'harness_test') {
             args.push(input.id);
             if (input.skip) args.push('--skip');
             if (input.cmd) args.push(`--cmd=${input.cmd}`);
         } else if (tool === 'harness_review') {
             if (input.skipTests) args.push('--skip-tests');
+        } else if (tool === 'harness_approve') {
+            args.push(input.id);
+            if (input.stage) args.push(`--stage=${input.stage}`);
+        } else if (tool === 'harness_orchestrate_claim' || tool === 'harness_orchestrate_release') {
+            args.push(input.id);
+            if (input.owner) args.push(`--owner=${input.owner}`);
+        } else if (tool === 'harness_memory_compact') {
+            if (input.days) args.push(`--days=${input.days}`);
+        } else if (tool === 'harness_judge') {
+            args.push(input.id);
+        } else if (tool === 'harness_judge_record') {
+            args.push(input.id);
+            args.push(`--rule=${input.rule}`);
+            args.push(`--verdict=${input.verdict}`);
+            if (input.note) args.push(`--note=${input.note}`);
         }
 
         const { output, exitCode } = runInMemory(args);
