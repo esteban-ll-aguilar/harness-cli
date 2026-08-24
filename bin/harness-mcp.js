@@ -8,8 +8,8 @@
  *
  *   Tools: harness_init, harness_new_change, harness_status,
  *          harness_review, harness_context, harness_memory_search,
- *          harness_agent_run, harness_rules_add, harness_advance,
- *          harness_test
+ *          harness_agent_run, harness_rules_add, harness_rules_preset,
+ *          harness_advance, harness_test
  */
 
 const path = require('path');
@@ -30,6 +30,7 @@ const TOOL_NAME_TO_COMMAND = {
     harness_agent_list: ['agent', 'list'],
     harness_rules_add: ['rules', 'add'],
     harness_rules_list: ['rules', 'list'],
+    harness_rules_preset: ['rules', 'preset'],
     harness_advance: ['advance'],
     harness_test: ['test']
 };
@@ -136,6 +137,15 @@ const TOOLS = [
                 tag: { type: 'string', description: 'Category tag' }
             },
             required: ['text']
+        }
+    },
+    {
+        name: 'harness_rules_preset',
+        description: 'Apply a curated senior-engineer rule pack (default: senior) — data modeling, propose-before-build UI/UX, reuse-before-create, real verification, security, performance and honesty rules. Idempotent; synced into AGENTS.md.',
+        inputSchema: {
+            type: 'object',
+            properties: { name: { type: 'string', description: 'Preset name (default: senior)' } },
+            required: []
         }
     },
     {
@@ -259,6 +269,8 @@ rl.on('line', (line) => {
             args.push(input.text);
             if (input.severity) args.push(`--severity=${input.severity}`);
             if (input.tag) args.push(`--tag=${input.tag}`);
+        } else if (tool === 'harness_rules_preset') {
+            if (input.name) args.push(input.name);
         } else if (tool === 'harness_advance') {
             args.push(input.id);
             if (input.to) args.push(`--to=${input.to}`);

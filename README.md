@@ -4,7 +4,7 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
-**Version:** 1.1.0 | **Status:** Production Ready ✅ | **Tests:** 19/19 passing ✅
+**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 33/33 passing ✅
 
 ## ✨ Features
 
@@ -59,8 +59,9 @@ harness test 001 --skip             # record an explicit "not applicable" decisi
 # Semantic search over the vault (RAG)
 harness memory search "auth token rate limiting"
 
-# Manage rules that always apply
+# Manage rules that always apply (init seeds a curated "senior" pack automatically)
 harness rules add "Every PR must include a test"
+harness rules preset senior   # retrofit the default rule pack on an existing project
 harness rules list
 
 # Create your own agent
@@ -278,6 +279,15 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 
 ### Rules
 
+- `harness init` seeds a curated **senior-engineer default rule pack** automatically (13 rules —
+  data modeling/normalization, propose-before-build UI/UX, verify functionality end-to-end,
+  reuse before creating duplicates, follow existing conventions, propose a plan before big
+  changes, don't invent scope, document decisions/learnings, validate boundaries & handle
+  errors, avoid N+1/paginate listings, never claim "done" without verifying, self-review before
+  handoff, and UI states/accessibility). See `src/data/default-rules.js`.
+- Retrofit an existing project (or re-apply after upgrading harness-cli): `harness rules preset senior`.
+  Idempotent — already-present rule ids are skipped, so it's safe to re-run.
+- Opt out at init time with `harness init --no-default-rules`.
 - `harness rules add "Every PR must include a test" --severity=must --tag=testing`
 - Rules are synced into `AGENTS.md` (brain + root) and verified by `harness review`.
 
@@ -357,7 +367,11 @@ npm test
 #   ✅ parseOutput parses Jest/pytest/cargo/go summaries
 # 🐛 BDD Gate
 #   ✅ countBddScenarios separates real from placeholder scenarios
-# Results: 29 passed, 0 failed
+# 📜 Rules Preset
+#   ✅ applyPreset seeds the senior rule pack and syncs into AGENTS.md
+#   ✅ applyPreset is idempotent — a second call skips already-seeded rules
+#   ✅ applyPreset returns an error for an unknown preset name
+# Results: 33 passed, 0 failed
 ```
 
 ## 📄 License

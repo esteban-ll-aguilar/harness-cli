@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { getHarnessDir, ensureDir, loadHarnessRC, slugify, timestamp } = require('../utils/fileUtils.js');
+const { getHarnessDir, ensureDir, loadHarnessRC, writeHarnessRC, slugify, timestamp } = require('../utils/fileUtils.js');
+const { PRESETS } = require('../data/default-rules.js');
 
 /**
  * `harness rules` — manage project rules that ALWAYS apply.
@@ -43,6 +44,9 @@ function rules(cwd, args) {
         case 'check':
             checkRules(cwd, harnessDir);
             break;
+        case 'preset':
+            presetCmd(cwd, harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📜 HARNESS RULES — rules that ALWAYS apply to every agent
@@ -51,8 +55,13 @@ function rules(cwd, args) {
   harness rules add <text> [--severity=must/should] [--tag=...]
                                        Add a rule (auto-synced to AGENTS.md)
   harness rules remove <id>            Disable a rule by id
+  harness rules preset [name]          Apply a curated rule pack (default: senior)
+                                       Seeded automatically by \`harness init\`;
+                                       run this to retrofit an existing project.
   harness rules sync                   Regenerate the Rules section in AGENTS.md
   harness rules check                  Verify rules are present and enforced
+
+  Available presets: ${Object.keys(PRESETS).join(', ')}
 `);
     }
 }
@@ -127,6 +136,83 @@ The Guardian checks this rule during \`harness review\`.
     syncRules(cwd, harnessDir);
     console.log(`✅ Rule added (${severity}/${tag}): ${text}`);
     console.log(`   ${path.join('.harness', ...RULES_DIR, id + '.md')}`);
+}
+
+/**
+ * Apply a curated rule pack (see src/data/default-rules.js) to the project.
+ * Idempotent: rules whose id is already present (by id, regardless of
+ * enabled/disabled state) are skipped, so re-running after `harness rules
+ * remove <id>` won't resurrect a rule the user deliberately disabled/removed.
+ * Called automatically by `harness init` and available standalone via
+ * `harness rules preset [name]` to retrofit an existing project.
+ */
+function applyPreset(cwd, harnessDir, presetName = 'senior') {
+    const preset = PRESETS[presetName];
+    if (!preset) {
+        return { ok: false, error: `Unknown preset "${presetName}". Available: ${Object.keys(PRESETS).join(', ')}` };
+    }
+
+    const dir = rulesDir(harnessDir);
+    ensureDir(dir);
+
+    const rc = loadHarnessRC(cwd);
+    const rules = rc.rules || [];
+    const existingIds = new Set(rules.map(r => r.id));
+    const ts = timestamp();
+
+    let added = 0;
+    for (const r of preset) {
+        if (existingIds.has(r.id)) continue;
+
+        const file = path.join(dir, `${r.id}.md`);
+        const content = `---
+id: ${r.id}
+title: ${r.title}
+severity: ${r.severity}
+tag: ${r.tag}
+enabled: true
+created: ${ts}
+preset: ${presetName}
+---
+
+# ${r.id}
+
+- **Rule:** ${r.title}
+- **Severity:** ${r.severity}
+- **Tag:** ${r.tag}
+- **Preset:** ${presetName}
+
+## Rationale
+
+${r.rationale}
+
+## Enforcement
+
+The Guardian checks this rule during \`harness review\`.
+`;
+        fs.writeFileSync(file, content);
+
+        rules.push({ id: r.id, title: r.title, severity: r.severity, tag: r.tag, enabled: true, createdAt: ts, preset: presetName });
+        existingIds.add(r.id);
+        added++;
+    }
+
+    rc.rules = rules;
+    writeHarnessRC(cwd, rc);
+    if (added > 0) syncRules(cwd, harnessDir);
+
+    return { ok: true, added, skipped: preset.length - added, total: preset.length };
+}
+
+function presetCmd(cwd, harnessDir, args) {
+    const name = args[0] || 'senior';
+    const result = applyPreset(cwd, harnessDir, name);
+    if (!result.ok) {
+        console.log(`❌ ${result.error}`);
+        return;
+    }
+    console.log(`✅ Preset "${name}": ${result.added} rule(s) added, ${result.skipped} already present (${result.total} total in preset).`);
+    if (result.added > 0) console.log('   Synced into AGENTS.md (brain + root). Run: harness rules list');
 }
 
 function removeRule(cwd, harnessDir, id) {
@@ -252,4 +338,4 @@ function checkRules(cwd, harnessDir) {
     return fail === 0;
 }
 
-module.exports = { rules };
+module.exports = { rules, applyPreset };

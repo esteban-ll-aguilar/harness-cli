@@ -47,6 +47,7 @@ const { getToolConfig } = require('../src/utils/aiAdapter.js');
 const { parseToolsFlag, writeToolConfigs } = require('../src/utils/toolSetup.js');
 const { STAGES, countBddScenarios } = require('../src/commands/advance.js');
 const { parseOutput, specHasOwnConfig } = require('../src/utils/testRunner.js');
+const { applyPreset } = require('../src/commands/rules.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -384,6 +385,60 @@ Feature: Auth
     assertEqual(real, 1, 'Only non-bracketed scenario names count as real');
     assertEqual(placeholder, 2, 'Bracketed scenario names are placeholders');
     assertEqual(files, 1);
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Rules Preset (curated default rule packs)
+// ============================================================
+console.log('\n📜 Rules Preset');
+
+function setupRulesFixture() {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), '# AGENTS\n');
+    fs.writeFileSync(path.join(tmpDir, 'AGENTS.md'), '# AGENTS\n');
+    return { tmpDir, harnessDir };
+}
+
+test('applyPreset seeds the senior rule pack and syncs into AGENTS.md', () => {
+    const { tmpDir, harnessDir } = setupRulesFixture();
+
+    const result = applyPreset(tmpDir, harnessDir, 'senior');
+    assertTrue(result.ok, 'Should apply successfully');
+    assertTrue(result.added > 5, 'Should add multiple default rules');
+    assertEqual(result.skipped, 0, 'Nothing should be skipped on first apply');
+
+    const rc = JSON.parse(fs.readFileSync(path.join(tmpDir, '.harnessrc'), 'utf8'));
+    assertEqual(rc.rules.length, result.added, 'Rules should be persisted to .harnessrc');
+
+    const agents = fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8');
+    assertTrue(agents.includes('Project Rules'), 'AGENTS.md should contain the synced rules section');
+    assertTrue(agents.includes(rc.rules[0].title), 'AGENTS.md should contain a seeded rule title');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('applyPreset is idempotent — a second call skips already-seeded rules', () => {
+    const { tmpDir, harnessDir } = setupRulesFixture();
+
+    const first = applyPreset(tmpDir, harnessDir, 'senior');
+    const second = applyPreset(tmpDir, harnessDir, 'senior');
+
+    assertEqual(second.added, 0, 'Second apply should add nothing new');
+    assertEqual(second.skipped, first.added, 'Second apply should skip everything already present');
+
+    const rc = JSON.parse(fs.readFileSync(path.join(tmpDir, '.harnessrc'), 'utf8'));
+    assertEqual(rc.rules.length, first.added, 'Rule count should not duplicate after a second apply');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('applyPreset returns an error for an unknown preset name', () => {
+    const { tmpDir, harnessDir } = setupRulesFixture();
+    const result = applyPreset(tmpDir, harnessDir, 'does-not-exist');
+    assertFalse(result.ok, 'Unknown preset should fail gracefully');
     fs.rmSync(tmpDir, { recursive: true });
 });
 

@@ -283,6 +283,13 @@ isMonorepo: ${detection.isMonorepo}
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
 
+        // Seed the curated senior-engineer default rule pack (opt out with --no-default-rules)
+        let rulesResult = null;
+        if (!args.includes('--no-default-rules')) {
+            const { applyPreset } = require('./rules.js');
+            rulesResult = applyPreset(cwd, harnessDir, 'senior');
+        }
+
         console.log(`
 ✅ Harness initialized successfully!
 
@@ -294,6 +301,10 @@ ${detection.isMonorepo ? `📦 Monorepo: ${detection.totalLanguages} languages d
 
 🛠️  Tool configs written:
 ${toolSummary.map(t => `   ${t.file.padEnd(28)} → ${t.label}`).join('\n')}
+${rulesResult && rulesResult.ok ? `
+📜 Default rules seeded: ${rulesResult.added} senior-engineer rules (data modeling, propose-before-build UI/UX, reuse, verification, security, performance, honesty…)
+   harness rules list          → see them all
+   harness rules preset senior → re-apply/retrofit on any project` : ''}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering
