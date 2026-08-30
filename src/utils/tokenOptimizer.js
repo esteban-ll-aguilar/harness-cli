@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadIndex, search } = require('./retrieval.js');
+const { loadGraph, queryGraph } = require('./graphIndex.js');
 
 /**
  * Tiered Memory Loader
@@ -31,10 +32,24 @@ function getAlwaysContext(harnessDir) {
     return context.join('\n\n');
 }
 
-function getOnDemandContext(harnessDir, query) {
+function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     if (!query) return '';
-    // BM25 retrieval over the whole vault (brain + specs + memory).
-    // Falls back to a simple keyword scan when the index is unavailable.
+
+    // Graph retrieval: section-level nodes ranked by BM25 x confidence x
+    // recency, superseded/expired facts excluded, cut at an explicit token
+    // budget — never dumps a whole file just because one section matched.
+    const graph = loadGraph(harnessDir, { rebuild: true });
+    if (graph && graph.numNodes > 0) {
+        const { nodes } = queryGraph(graph, query, { budgetTokens });
+        if (nodes.length > 0) {
+            return nodes.map(n => {
+                const label = n.heading ? `${n.file}#${n.heading}` : n.file;
+                return `--- ${label} (${n.type}) ---\n${n.text}`;
+            }).join('\n\n');
+        }
+    }
+
+    // Fallback: whole-file BM25 (empty/no-heading vault, or graph build failed).
     const index = loadIndex(harnessDir, { rebuild: true });
     if (!index || index.numDocs === 0) return '';
 

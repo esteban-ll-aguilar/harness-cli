@@ -62,6 +62,8 @@ const { context } = require('../src/commands/context.js');
 const { showHelp } = require('../src/utils/help.js');
 const { newChange } = require('../src/commands/new-change.js');
 const { judgeCheck } = require('../src/commands/review.js');
+const { buildGraph, queryGraph, splitSections, classifyType, recencyDecay } = require('../src/utils/graphIndex.js');
+const { getOnDemandContext } = require('../src/utils/tokenOptimizer.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -931,6 +933,139 @@ test('archived logs are excluded from a rebuilt BM25 index', () => {
     const index = buildIndex(harnessDir);
     const hasArchived = Object.keys(index.docs).some(rel => rel.includes('.archive'));
     assertFalse(hasArchived, 'Archived logs must not be part of the indexed corpus');
+
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+// ============================================================
+// Graph Memory (typed, weighted, temporal — section-level)
+// ============================================================
+console.log('\n🕸️  Graph Memory');
+
+function writeVault(files) {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    for (const [rel, content] of Object.entries(files)) {
+        const fp = path.join(tmpDir, rel);
+        fs.mkdirSync(path.dirname(fp), { recursive: true });
+        fs.writeFileSync(fp, content);
+    }
+    return tmpDir;
+}
+
+test('splitSections chunks by heading and keeps a preamble node', () => {
+    const sections = splitSections('# Title\nintro text\n\n## Context\nctx body\n\n## Decision\ndecision body\n');
+    assertEqual(sections.length, 3, 'Should produce preamble + 2 heading sections');
+    assertEqual(sections[0].heading, null, 'First section has no heading');
+    assertEqual(sections[1].heading, 'Context', 'Second section heading');
+    assertEqual(sections[2].heading, 'Decision', 'Third section heading');
+});
+
+test('classifyType infers node type from vault path', () => {
+    assertEqual(classifyType('brain/decisions/adr-001.md'), 'decision');
+    assertEqual(classifyType('brain/patterns/clean-architecture.md'), 'pattern');
+    assertEqual(classifyType('brain/constitution.md'), 'charter');
+    assertEqual(classifyType('specs/001-auth/spec.md'), 'spec');
+    assertEqual(classifyType('memory/session-logs/2026-01-01.md'), 'session');
+    assertEqual(classifyType('memory/random-note.md'), 'note');
+});
+
+test('buildGraph produces one node per section, typed and scored by confidence', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/adr-001.md': '---\ndate: 2026-01-01\n---\n# ADR-001\n\n## Decision\nUse BM25 for retrieval.\n'
+    });
+    const graph = buildGraph(tmpDir);
+    assertEqual(graph.numNodes, 2, 'Preamble + Decision section');
+    const decisionNode = graph.nodes['brain/decisions/adr-001.md#decision'];
+    assertTrue(!!decisionNode, 'Decision section should be addressable by file#heading');
+    assertEqual(decisionNode.type, 'decision');
+    assertEqual(decisionNode.confidence, 1.0, 'Decisions are fully confident by default');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('buildGraph turns wikilinks into references edges', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/adr-001.md': '# ADR-001\n\n## Decision\nSee [[adr-002]] for the follow-up.\n',
+        'brain/decisions/adr-002.md': '# ADR-002\n\n## Decision\nFollow-up decision.\n'
+    });
+    const graph = buildGraph(tmpDir);
+    const refs = graph.edges.filter(e => e.type === 'references');
+    assertTrue(refs.some(e => e.to === 'brain/decisions/adr-002.md'), 'Wikilink should resolve to the target file id');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('queryGraph ranks the matching section above an unrelated one', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/auth.md': '# Auth\n\n## Decision\nUse short-lived access tokens and refresh tokens for authentication.\n',
+        'brain/decisions/billing.md': '# Billing\n\n## Decision\nInvoices and refunds go through Stripe webhooks.\n'
+    });
+    const graph = buildGraph(tmpDir);
+    const { nodes } = queryGraph(graph, 'authentication access token', { budgetTokens: 600 });
+    assertTrue(nodes.length > 0, 'Should return matches');
+    assertEqual(nodes[0].file, 'brain/decisions/auth.md', 'Auth section should rank first');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('queryGraph excludes a section superseded by a newer note', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/adr-001.md': '---\ndate: 2026-01-01\n---\n# ADR-001\n\n## Decision\nUse plain BM25 file-level retrieval.\n',
+        'brain/decisions/adr-002.md': '---\ndate: 2026-06-01\nsupersedes: brain/decisions/adr-001.md\n---\n# ADR-002\n\n## Decision\nUse section-level graph retrieval instead.\n'
+    });
+    const graph = buildGraph(tmpDir);
+    const superseded = graph.nodes['brain/decisions/adr-001.md#decision'];
+    assertTrue(superseded.validUntil !== null, 'Superseded section should have a validUntil');
+
+    const { nodes } = queryGraph(graph, 'retrieval', { budgetTokens: 600 });
+    assertFalse(nodes.some(n => n.file === 'brain/decisions/adr-001.md'), 'Superseded ADR must not surface in results');
+    assertTrue(nodes.some(n => n.file === 'brain/decisions/adr-002.md'), 'Superseding ADR should surface');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('queryGraph stops adding nodes once the token budget is exhausted', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/adr-001.md': `# ADR-001\n\n## Decision\n${'retrieval architecture decision. '.repeat(80)}\n`
+    });
+    const graph = buildGraph(tmpDir);
+    const { nodes, tokensUsed, truncated } = queryGraph(graph, 'retrieval architecture decision', { budgetTokens: 10 });
+    assertEqual(nodes.length, 0, 'A section larger than the budget should not be added');
+    assertTrue(truncated, 'Should report truncation');
+    assertTrue(tokensUsed <= 10, 'Token usage must respect the budget');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('recencyDecay leaves durable types (decision) at full weight regardless of age', () => {
+    const oldNode = { type: 'decision', validFrom: Date.now() - 400 * 24 * 60 * 60 * 1000 };
+    assertEqual(recencyDecay(oldNode, Date.now()), 1, 'Decisions never decay');
+});
+
+test('recencyDecay fades a session note over time', () => {
+    const fresh = { type: 'session', validFrom: Date.now() };
+    const old = { type: 'session', validFrom: Date.now() - 60 * 24 * 60 * 60 * 1000 };
+    const now = Date.now();
+    assertTrue(recencyDecay(fresh, now) > recencyDecay(old, now), 'A 60-day-old session note should score lower than a fresh one');
+});
+
+test('getOnDemandContext returns only the matching section, not the whole file', () => {
+    const tmpDir = writeVault({
+        'brain/decisions/adr-001.md': `# ADR-001\n\n## Context\nUnrelated background noise padding out this file.\n\n## Decision\nUse rate limiting on the auth endpoint.\n`
+    });
+    const harnessDir = tmpDir; // getOnDemandContext takes the harness dir directly
+    const out = getOnDemandContext(harnessDir, 'rate limiting auth endpoint', { budgetTokens: 600 });
+    assertTrue(out.includes('rate limiting'), 'Should include the matching section');
+    assertTrue(out.includes('#decision') || out.includes('Decision'), 'Should be scoped to the Decision section');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('memory compact rebuilds the graph index so archived logs drop out of it', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    const logsDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    writeLogWithAge(logsDir, 'old-log.md', 40);
+
+    compactSessionLogs(tmpDir, harnessDir, { days: 30 });
+    const graph = buildGraph(harnessDir);
+    const hasArchived = Object.values(graph.nodes).some(n => n.file.includes('.archive'));
+    assertFalse(hasArchived, 'Archived logs must not be part of the graph corpus');
 
     fs.rmSync(tmpDir, { recursive: true });
 });

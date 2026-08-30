@@ -30,7 +30,7 @@ function showHelp() {
 ║                                                                      ║
 ║  KNOWLEDGE & RULES                                                    ║
 ║  harness rules list|add|remove|preset|sync|check  Project rules      ║
-║  harness memory search|symbol|index|compact|stats|obsidian           ║
+║  harness memory search|graph|symbol|index|compact|stats|obsidian     ║
 ║  harness context [--spec=][--query=][--for-file=]  Context bundle    ║
 ║  harness agent list|new|run <name>    Manage & run AI agents         ║
 ║                                                                      ║
@@ -39,7 +39,7 @@ function showHelp() {
 ║                                       MCP-compatible agent           ║
 ║                                                                      ║
 ║  MONOREPO: init auto-detects all languages; --lang=<lang> per change ║
-║  MEMORY:  Obsidian vault (.harness/) + BM25 + symbol index (zero deps)║
+║  MEMORY:  Obsidian vault (.harness/) + BM25 + graph + symbol (0 deps)║
 ║  FLOW:    stages followed by default; --to= records omissions in logs║
 ║                                                                      ║
 ║  WORKFLOW: Interview → Spec → Plan → Tasks → BDD → TDD → Review     ║

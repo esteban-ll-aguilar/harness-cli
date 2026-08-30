@@ -3,6 +3,7 @@ const path = require('path');
 const { getHarnessDir, ensureDir, listFiles, parseFrontmatter, timestamp } = require('../utils/fileUtils.js');
 const { buildIndex, search, loadIndex, saveIndex } = require('../utils/retrieval.js');
 const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findReferences } = require('../utils/symbolIndex.js');
+const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -48,12 +49,16 @@ function memory(cwd, args) {
         case 'symbols':
             symbolCmd(cwd, harnessDir, args.slice(1));
             break;
+        case 'graph':
+            graphCmd(harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
 
-  harness memory index              Rebuild the BM25 semantic index + symbol index
+  harness memory index              Rebuild the BM25 + symbol + graph indexes
   harness memory search <query>     Search the whole vault (brain + specs + memory)
+  harness memory graph [query]      Inspect the graph memory, or query it directly
   harness memory symbol <name>      Find where a function/class is defined in your source
   harness memory obsidian           Regenerate the Obsidian Map of Content
   harness memory stats              Show corpus statistics
@@ -61,6 +66,49 @@ function memory(cwd, args) {
                                     into a digest — keeps search relevant, never deletes data
 `);
     }
+}
+
+/**
+ * `harness memory graph` — inspect or query the section-level graph memory
+ * (see utils/graphIndex.js). Without a query, prints corpus shape (nodes by
+ * type, edge counts); with one, runs the same budgeted retrieval that feeds
+ * `harness context` / `new-change` / `agent run`, so you can see exactly
+ * what an agent would be handed for that query.
+ */
+function graphCmd(harnessDir, args) {
+    const graph = loadGraph(harnessDir);
+    if (!graph || graph.numNodes === 0) {
+        console.log('⚠️  No graph memory built yet. Run: harness memory index');
+        return;
+    }
+
+    const query = args.join(' ').trim();
+    if (!query) {
+        const byType = {};
+        for (const node of Object.values(graph.nodes)) byType[node.type] = (byType[node.type] || 0) + 1;
+        const superseded = Object.values(graph.nodes).filter(n => n.validUntil !== null).length;
+
+        console.log(`\n🕸️  GRAPH MEMORY`);
+        console.log(`   Nodes: ${graph.numNodes}   Edges: ${graph.numEdges}   Superseded: ${superseded}`);
+        for (const [type, count] of Object.entries(byType).sort((a, b) => b[1] - a[1])) {
+            console.log(`   ${type.padEnd(10)} ${count}`);
+        }
+        console.log(`\n💡 harness memory graph "<query>" — see what an agent would be handed for that query\n`);
+        return;
+    }
+
+    const { nodes, tokensUsed, truncated } = queryGraph(graph, query, { budgetTokens: 600 });
+    console.log(`\n🕸️  Query: "${query}"  (~${tokensUsed} tokens${truncated ? ', budget-truncated' : ''})\n`);
+    if (nodes.length === 0) {
+        console.log('   No matches.');
+        return;
+    }
+    for (const n of nodes) {
+        const label = n.heading ? `${n.file}#${n.heading}` : n.file;
+        const validity = n.validUntil !== null ? ` [superseded ${new Date(n.validUntil).toISOString().slice(0, 10)}]` : '';
+        console.log(`   ${n.score.toFixed(2).padStart(6)}  ${label}  (${n.type}, conf ${n.confidence})${validity}`);
+    }
+    console.log('');
 }
 
 function symbolCmd(cwd, harnessDir, args) {
@@ -108,7 +156,7 @@ function compactCmd(cwd, harnessDir, args) {
     console.log(`🗜️  Compacted ${result.archived} log(s) older than ${days} day(s).`);
     console.log(`   Archived to: .harness/.archive/session-logs/`);
     console.log(`   Digest written: ${path.relative(cwd, result.digestPath)}`);
-    console.log(`   BM25 index rebuilt.`);
+    console.log(`   BM25 + graph indexes rebuilt.`);
 }
 
 /**
@@ -180,6 +228,7 @@ function compactSessionLogs(cwd, harnessDir, { days = 30 } = {}) {
 
     const index = buildIndex(harnessDir);
     saveIndex(harnessDir, index);
+    saveGraph(harnessDir, buildGraph(harnessDir));
 
     return { archived: eligible.length, digestPath, groups: Object.values(groups) };
 }
@@ -193,6 +242,10 @@ function rebuild(cwd, harnessDir) {
     const symbolIndex = buildSymbolIndex(cwd);
     saveSymbolIndex(harnessDir, symbolIndex);
     console.log(`🔎 Symbol index rebuilt: ${symbolIndex.numSymbols} symbols`);
+
+    const graph = buildGraph(harnessDir);
+    saveGraph(harnessDir, graph);
+    console.log(`🕸️  Graph memory rebuilt: ${graph.numNodes} nodes, ${graph.numEdges} edges`);
     console.log('💡 Tip: open this folder as an Obsidian vault, use `harness memory search`, or `harness memory symbol <name>`.');
 }
 
@@ -219,6 +272,7 @@ function doSearch(harnessDir, query) {
 
 function stats(harnessDir) {
     const index = loadIndex(harnessDir);
+    const graph = loadGraph(harnessDir, { rebuild: false });
     const countIn = (root) => {
         const dir = path.join(harnessDir, root);
         if (!fs.existsSync(dir)) return 0;
@@ -230,6 +284,7 @@ function stats(harnessDir) {
    Specs files:   ${countIn('specs')}
    Memory logs:   ${countIn('memory')}
    Indexed docs:  ${index ? index.numDocs : 0} (${index ? Object.keys(index.df).length : 0} terms)
+   Graph memory:  ${graph ? graph.numNodes : 0} nodes, ${graph ? graph.numEdges : 0} edges
 `);
 }
 
