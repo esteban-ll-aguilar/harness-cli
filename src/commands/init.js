@@ -4,6 +4,7 @@ const readline = require('readline');
 const { ensureDir, copyDir, copyTemplate, writeHarnessRC, getHarnessDir } = require('../utils/fileUtils.js');
 const { detectLanguages, getLanguageConfig } = require('../utils/languageDetector.js');
 const { parseToolsFlag, ALL_TOOL_IDS, writeToolConfigs } = require('../utils/toolSetup.js');
+const { repairAgentLayout } = require('../utils/projectLayout.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -45,9 +46,18 @@ async function selectLanguage(rl, detection) {
 async function initProject(cwd, args) {
     const harnessDir = path.join(cwd, '.harness');
     const force = args.includes('--force');
+    const repair = args.includes('--repair');
+
+    if (fs.existsSync(harnessDir) && repair && !force) {
+        repairAgentLayout(cwd, harnessDir);
+        const { ensureAgents } = require('./agent.js');
+        ensureAgents(cwd);
+        console.log('✅ Harness layout repaired: root AGENTS.md and .agents/ projection are current.');
+        return;
+    }
 
     if (fs.existsSync(harnessDir) && !force) {
-        console.log('⚠️  .harness/ already exists. Use --force to reinitialize.');
+        console.log('⚠️  .harness/ already exists. Use --repair to restore entry points or --force to reinitialize.');
         return;
     }
 
@@ -198,16 +208,15 @@ async function initProject(cwd, args) {
                 requireSpec: true,
                 requireBdd: true,
                 requireTdd: true,
-                approvalGates: ['architect']
+                approvalGates: ['architect'],
+                traceabilityMode: 'warn',
+                contextBudgetTokens: 1200
             }
         });
 
         // Create root-level references
-        const rootAgents = path.join(cwd, 'AGENTS.md');
         const rootHarnessIgnore = path.join(cwd, '.harnessignore');
-
-        const agentsContent = fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8');
-        fs.writeFileSync(rootAgents, agentsContent);
+        repairAgentLayout(cwd, harnessDir);
 
         fs.writeFileSync(rootHarnessIgnore, `# Harness ignore patterns
 node_modules/

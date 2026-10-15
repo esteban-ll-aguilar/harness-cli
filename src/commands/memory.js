@@ -4,6 +4,8 @@ const { getHarnessDir, ensureDir, listFiles, parseFrontmatter, timestamp } = req
 const { buildIndex, search, loadIndex, saveIndex } = require('../utils/retrieval.js');
 const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findReferences } = require('../utils/symbolIndex.js');
 const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
+const { submitObservation, processInbox } = require('../utils/memorySteward.js');
+const { memoryHealth } = require('../utils/memoryHealth.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -52,6 +54,15 @@ function memory(cwd, args) {
         case 'graph':
             graphCmd(harnessDir, args.slice(1));
             break;
+        case 'observe':
+            observeCmd(harnessDir, args.slice(1));
+            break;
+        case 'steward':
+            stewardCmd(harnessDir, args.slice(1));
+            break;
+        case 'health':
+            healthCmd(harnessDir);
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
@@ -66,6 +77,34 @@ function memory(cwd, args) {
                                     into a digest — keeps search relevant, never deletes data
 `);
     }
+}
+
+function observeCmd(harnessDir, args) {
+    const flags = Object.fromEntries(args.filter(a => a.startsWith('--') && a.includes('=')).map(a => { const i = a.indexOf('='); return [a.slice(2, i), a.slice(i + 1)]; }));
+    try {
+        submitObservation(harnessDir, flags);
+        console.log('🧠 Observation submitted to memory/inbox/. The Memory Steward is the only role that can promote it.');
+    } catch (e) { console.log(`❌ ${e.message}`); }
+}
+
+function stewardCmd(harnessDir, args) {
+    const actor = args.find(a => a.startsWith('--actor='))?.slice(8) || 'memory-steward';
+    const result = processInbox(harnessDir, { actor });
+    console.log(`🧠 Memory Steward — promoted: ${result.promoted}, duplicates: ${result.duplicates}, rejected: ${result.rejected}`);
+}
+
+function healthCmd(harnessDir) {
+    const report = memoryHealth(loadGraph(harnessDir));
+    console.log(`\n🩺 MEMORY HEALTH — ${report.status.toUpperCase()}`);
+    console.log(`   Nodes: ${report.nodeCount} · edges: ${report.edgeCount} · superseded: ${report.supersededNodes.length}`);
+    if (report.danglingEdges.length) {
+        console.log(`   ⚠️  Dangling references: ${report.danglingEdges.length}`);
+        for (const edge of report.danglingEdges.slice(0, 5)) console.log(`      ${edge.from} → ${edge.to}`);
+    }
+    if (report.orphanedEdges.length) console.log(`   ⚠️  Orphaned edges: ${report.orphanedEdges.length}`);
+    if (report.status === 'pass') console.log('   ✅ No dangling or orphaned graph evidence.');
+    console.log('');
+    return report;
 }
 
 /**
@@ -350,4 +389,4 @@ function generateObsidian(cwd, harnessDir) {
     console.log(`   Regenerate with: harness memory obsidian`);
 }
 
-module.exports = { memory, generateObsidian, compactSessionLogs };
+module.exports = { memory, generateObsidian, compactSessionLogs, healthCmd };

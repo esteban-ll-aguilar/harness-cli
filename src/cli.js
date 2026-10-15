@@ -15,6 +15,9 @@ const { testCmd } = require('./commands/test.js');
 const { gate } = require('./commands/gate.js');
 const { orchestrate } = require('./commands/orchestrate.js');
 const { judge } = require('./commands/judge.js');
+const { work } = require('./commands/work.js');
+const { quality } = require('./commands/quality.js');
+const { trace } = require('./commands/trace.js');
 const { showHelp, showVersion } = require('./utils/help.js');
 
 function runCLI(args, ctx) {
@@ -24,6 +27,12 @@ function runCLI(args, ctx) {
     switch (command) {
         case 'init':
             initProject(ctx.cwd, subArgs);
+            break;
+        case 'work':
+            work(ctx.cwd, subArgs);
+            break;
+        case 'quality':
+            quality(ctx.cwd, subArgs);
             break;
         case 'new-change':
         case 'change':
@@ -67,6 +76,9 @@ function runCLI(args, ctx) {
             break;
         case 'judge':
             judge(ctx.cwd, subArgs);
+            break;
+        case 'trace':
+            trace(ctx.cwd, subArgs);
             break;
         case 'version':
         case '-v':

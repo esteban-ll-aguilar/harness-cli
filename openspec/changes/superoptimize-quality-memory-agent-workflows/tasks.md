@@ -10,7 +10,7 @@
 
 ## 1. Make SDD → BDD → TDD mechanically traceable
 
-- [ ] 1.1 Create `src/utils/traceability.js` to parse normative requirement IDs, Gherkin
+- [x] 1.1 Create `src/utils/traceability.js` to parse normative requirement IDs, Gherkin
       `@covers:` tags and test coverage comments without language-specific dependencies.
 - [ ] 1.2 Add `harness trace <specId>` with a compact coverage matrix and machine-readable
       `--json` output.
@@ -23,7 +23,7 @@
 
 ## 2. Budgeted context controller
 
-- [ ] 2.1 Extract a `ContextBudget` allocator from `tokenOptimizer.js`, with tier caps,
+- [x] 2.1 Extract a `ContextBudget` allocator from `tokenOptimizer.js`, with tier caps,
       deterministic admission and no cross-tier overflow.
 - [ ] 2.2 Make `getAlwaysContext` section-aware and capped; emit locators for omitted material.
 - [ ] 2.3 Add a context receipt to `harness context` (`--budget=N`, `--receipt=json|text`) and
@@ -39,7 +39,7 @@
       evidence-backed edges for `implements` and `verifies`.
 - [ ] 3.2 Add stable node/edge IDs and index-version migration; retain inference for legacy
       Markdown and invalid frontmatter warnings.
-- [ ] 3.3 Add `harness memory health` as a read-only health report.
+- [x] 3.3 Add `harness memory health` as a read-only health report.
 - [ ] 3.4 Add `harness memory eval` with versioned deterministic fixture corpus and metrics:
       recall@k, stale-hit rate, budget compliance, dangling-edge count and traceability coverage.
 - [ ] 3.5 Tests: typed edge construction, stale/superseded edge behavior, health findings and
@@ -58,7 +58,7 @@
 
 ## 4.5. Memory Steward and generated-project compatibility
 
-- [ ] 4.5.1 Add the built-in `memory-steward` role, structured observation inbox and
+- [x] 4.5.1 Add the built-in `memory-steward` role, structured observation inbox and
       deterministic promotion/rejection processing with provenance checks.
 - [ ] 4.5.2 Update `harness init` to generate/repair the root `AGENTS.md` entry point and a
       `.agents/` compatibility projection without duplicating canonical memory.

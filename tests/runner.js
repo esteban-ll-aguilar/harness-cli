@@ -64,8 +64,78 @@ const { newChange } = require('../src/commands/new-change.js');
 const { judgeCheck } = require('../src/commands/review.js');
 const { buildGraph, queryGraph, splitSections, classifyType, recencyDecay } = require('../src/utils/graphIndex.js');
 const { getOnDemandContext } = require('../src/utils/tokenOptimizer.js');
+const { buildTraceabilityReport } = require('../src/utils/traceability.js');
+const { ContextBudget } = require('../src/utils/contextBudget.js');
+const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
+const { repairAgentLayout } = require('../src/utils/projectLayout.js');
+const { memoryHealth } = require('../src/utils/memoryHealth.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
+
+// ============================================================
+// Superoptimization contracts — RED before implementation
+// ============================================================
+console.log('📦 Quality, Memory & Agent Workflow Contracts');
+
+test('traceability links a requirement to BDD and TDD evidence', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const specDir = path.join(tmpDir, '001-auth');
+    fs.mkdirSync(path.join(specDir, 'features'), { recursive: true });
+    fs.mkdirSync(path.join(specDir, 'tests'));
+    fs.writeFileSync(path.join(specDir, 'spec.md'), '### REQ-001: Sign in\nThe system SHALL sign in a valid user.\n');
+    fs.writeFileSync(path.join(specDir, 'features', 'auth.feature'), '@covers:REQ-001\nScenario: valid sign in\n  When a user signs in\n  Then access is granted\n');
+    fs.writeFileSync(path.join(specDir, 'tests', 'auth.test.js'), '// @covers:REQ-001\ntest("sign in", () => {})\n');
+    const report = buildTraceabilityReport(specDir);
+    assertEqual(report.coverage['REQ-001'].status, 'covered', 'Requirement should be fully traceable');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('context budget never exceeds its configured capacity and returns omissions', () => {
+    const budget = new ContextBudget(10, { working: 0.5, episodic: 0.2, semantic: 0.3 });
+    budget.add('working', { id: 'required', text: '12345678901234567890', priority: 10 });
+    budget.add('semantic', { id: 'optional', text: '12345678901234567890', priority: 1 });
+    const receipt = budget.receipt();
+    assertTrue(receipt.tokensUsed <= 10, 'Budget must be a hard ceiling');
+    assertTrue(receipt.omitted.length > 0, 'Over-budget items must be visible');
+});
+
+test('only Memory Steward promotes a unique observation and rejects duplicates', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'inbox'), { recursive: true });
+    fs.mkdirSync(path.join(harnessDir, 'brain', 'patterns'), { recursive: true });
+    submitObservation(harnessDir, { claim: 'Use parameterized SQL', source: 'specs/001/spec.md', scope: '001', evidence: 'REQ-001' });
+    assertEqual(processInbox(harnessDir, { actor: 'coder' }).rejected, 1, 'Non-steward must not promote memory');
+    const first = processInbox(harnessDir, { actor: 'memory-steward' });
+    assertEqual(first.promoted, 1, 'Steward should promote valid observation');
+    submitObservation(harnessDir, { claim: 'Use parameterized SQL', source: 'specs/001/spec.md', scope: '001', evidence: 'REQ-001' });
+    const second = processInbox(harnessDir, { actor: 'memory-steward' });
+    assertEqual(second.duplicates, 1, 'Duplicate must not create another memory item');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('repairAgentLayout creates a compatibility projection without replacing canonical memory', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const harnessDir = path.join(tmpDir, '.harness');
+    fs.mkdirSync(path.join(harnessDir, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), '# Canonical instructions\n');
+    repairAgentLayout(tmpDir, harnessDir);
+    assertTrue(fs.existsSync(path.join(tmpDir, 'AGENTS.md')), 'Root AGENTS entry point should exist');
+    assertTrue(fs.existsSync(path.join(tmpDir, '.agents', 'AGENTS.md')), 'Compatibility projection should exist');
+    assertEqual(fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8'), '# Canonical instructions\n', 'Canonical memory must remain untouched');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('memory health reports dangling graph references without changing memory', () => {
+    const graph = {
+        nodes: { 'brain/a.md': { id: 'brain/a.md', validUntil: null } },
+        edges: [{ from: 'brain/a.md', to: 'brain/missing.md', type: 'references' }],
+        builtAt: new Date().toISOString()
+    };
+    const health = memoryHealth(graph);
+    assertEqual(health.danglingEdges.length, 1, 'Missing target must be reported');
+    assertEqual(health.status, 'warn', 'Dangling evidence should warn, not mutate the graph');
+});
 
 // ============================================================
 // Language Detector Tests

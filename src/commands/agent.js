@@ -7,7 +7,7 @@ const { loadIndex, search } = require('../utils/retrieval.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
-const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'reviewer', 'guardian'];
+const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'reviewer', 'guardian', 'memory-steward'];
 
 const DEFAULT_AGENTS = {
     interviewer: {
@@ -45,6 +45,12 @@ const DEFAULT_AGENTS = {
         model: 'fast',
         goal: 'Run the quality gates and block production unless everything passes.',
         instructions: 'Run lint, tests, coverage (>=80%), security scan. Output approval or failure report. If PASS, mark the spec as done.'
+    },
+    'memory-steward': {
+        emoji: '🧠',
+        model: 'fast',
+        goal: 'Protect long-term project memory by validating, deduplicating and promoting provenance-bearing observations.',
+        instructions: 'You are the sole durable-memory writer. Read memory/inbox/, validate source/evidence, process only with harness memory steward, and never invent or overwrite facts. Other agents submit observations; you publish receipts.'
     }
 };
 

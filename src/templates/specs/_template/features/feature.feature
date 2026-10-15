@@ -12,7 +12,7 @@ Feature: {{name}}
   # HAPPY PATH SCENARIOS
   # ============================================================
 
-  @critical @smoke
+  @critical @smoke @covers:REQ-001
   Scenario: Successfully [main action]
     Given [precondition state]
     And [additional precondition]
@@ -21,7 +21,7 @@ Feature: {{name}}
     And [additional expectation]
     And [side effect verification]
 
-  @happy-path
+  @happy-path @covers:REQ-002
   Scenario: [Alternative happy path]
     Given [precondition]
     When [alternative action]
@@ -31,7 +31,7 @@ Feature: {{name}}
   # VALIDATION / ERROR SCENARIOS
   # ============================================================
 
-  @validation @error
+  @validation @error @covers:REQ-003
   Scenario: Reject [invalid input type]
     Given [valid precondition]
     When [action with invalid input]

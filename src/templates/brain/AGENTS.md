@@ -106,16 +106,23 @@ Read the full constitution: `brain/constitution.md`
 └── scripts/            # Automation scripts
 ```
 
-**Root references:**
-- `AGENTS.md` → copy of `.harness/brain/AGENTS.md`
+**Entry points and ownership:**
+- Root `AGENTS.md` → automatic entry point for Codex-compatible agents; it directs agents here.
+- `.agents/` → compatibility projection only; never store durable state there.
+- `.harness/brain/AGENTS.md` → canonical instructions and durable project knowledge.
 - `.harnessrc` → project configuration
 - `.obsidian` → symlink/junction to `.harness/.obsidian`
 
 ---
 
-## 5. Workflow Obligatorio (The 6 Agents)
+## 5. Workflow Obligatorio (The 7 Agents)
 
 You MUST follow this sequence. No skipping phases.
+
+**Context and memory rule:** Before work, run `harness context` with the relevant spec/query.
+Use `harness work` and `harness quality` as the primary command groups. Agents may submit
+evidence-bearing observations to `memory/inbox/`; only the Memory Steward may promote durable
+knowledge to `brain/`.
 
 ### Phase 1: 🎙️ Interviewer
 - **Goal:** Extract complete requirements from user/stakeholder

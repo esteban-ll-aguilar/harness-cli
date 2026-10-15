@@ -35,10 +35,15 @@ function context(cwd, args) {
         else if (a.startsWith('--query=')) opts.query = a.slice(8);
         else if (a.startsWith('--symbol=')) opts.symbol = a.slice(9);
         else if (a.startsWith('--for-file=')) opts.forFile = a.slice(11);
+        else if (a.startsWith('--budget=')) opts.budget = parseInt(a.slice(9), 10);
+        else if (a.startsWith('--receipt=')) opts.receipt = a.slice(10);
         else if (a.startsWith('--file=')) opts.file = a.slice(7);
     }
 
     const rc = loadHarnessRC(cwd);
+    const budget = Number.isFinite(opts.budget) && opts.budget > 0
+        ? opts.budget
+        : (rc.quality?.contextBudgetTokens || 1200);
     const parts = [];
 
     // 1. Tiered base context
@@ -107,13 +112,26 @@ Agents: ${Object.keys(rc.agents || {}).join(', ') || 'default 6'}`);
         }
     }
 
-    const bundle = parts.join('\n\n');
+    const unboundedBundle = parts.join('\n\n');
+    const rawTokens = Math.ceil(unboundedBundle.length / 4);
+    const maxChars = budget * 4;
+    const wasTrimmed = unboundedBundle.length > maxChars;
+    const bundle = wasTrimmed
+        ? `${unboundedBundle.slice(0, Math.max(0, maxChars - 160))}\n\n--- CONTEXT RECEIPT ---\nRemaining sections omitted because the ${budget}-token budget was exhausted. Use --spec, --query or --symbol to retrieve a narrower source.\n`
+        : unboundedBundle;
     const bundleTokens = Math.ceil(bundle.length / 4);
+    const receipt = {
+        budgetTokens: budget,
+        tokensUsed: bundleTokens,
+        rawTokens,
+        omitted: wasTrimmed ? [{ reason: 'total-budget', estimatedTokens: rawTokens - bundleTokens }] : []
+    };
 
     if (opts.file) {
         fs.writeFileSync(opts.file, bundle);
         console.log(`📦 Context bundle written: ${opts.file}`);
         console.log(`   Tokens (est): ${bundleTokens}`);
+        if (opts.receipt === 'json') console.log(JSON.stringify(receipt));
         return;
     }
 
@@ -121,6 +139,8 @@ Agents: ${Object.keys(rc.agents || {}).join(', ') || 'default 6'}`);
     console.log('─'.repeat(60));
     console.log(bundle);
     console.log('─'.repeat(60));
+    if (opts.receipt === 'json') console.log(JSON.stringify(receipt, null, 2));
+    else if (wasTrimmed) console.log(`⚠️  Context receipt: ${receipt.omitted[0].estimatedTokens} token(s) omitted to honor the ${budget}-token budget.`);
     console.log('💡 Tip: harness context --query="auth" adds retrieval, --file=ctx.md writes to disk.');
 }
 

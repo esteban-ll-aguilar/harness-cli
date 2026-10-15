@@ -3,6 +3,7 @@ const path = require('path');
 const readline = require('readline');
 const { getHarnessDir, loadHarnessRC, writeHarnessRC, timestamp, listFiles } = require('../utils/fileUtils.js');
 const { detectAmbiguities } = require('../utils/ambiguityDetector.js');
+const { buildTraceabilityReport } = require('../utils/traceability.js');
 
 /**
  * `harness advance <specId>` — walk a spec through the 6-agent lifecycle.
@@ -107,6 +108,7 @@ function step(cwd, harnessDir, rc, spec, delta, opts = {}) {
 
         if (checkApprovalGate(rc, spec, next)) return;
         if (next === 'tester' && agents.architect === 'done' && checkClarifyGate(cwd, harnessDir, spec, opts)) return;
+        if ((next === 'tester' || next === 'coder') && checkTraceabilityGate(harnessDir, rc, spec)) return;
 
         agents[next] = 'done';
         spec.status = STAGE_STATUS[next];
@@ -133,6 +135,22 @@ function step(cwd, harnessDir, rc, spec, delta, opts = {}) {
     }
 
     printState(spec);
+}
+
+function checkTraceabilityGate(harnessDir, rc, spec) {
+    const specDir = findSpecDir(harnessDir, spec.id);
+    if (!specDir) return false;
+    const report = buildTraceabilityReport(specDir);
+    const mode = rc.quality?.traceabilityMode || 'warn';
+    const legacy = report.total === 0;
+    if (!legacy && report.gaps.length === 0) return false;
+    const reason = legacy ? 'no REQ-* normative requirements found' : `${report.gaps.length} requirement(s) lack BDD/TDD evidence`;
+    if (mode === 'strict') {
+        console.log(`\n🛑 Traceability gate: ${reason}. Run: harness quality trace ${spec.id}\n`);
+        return true;
+    }
+    console.log(`\n⚠️  Traceability warning: ${reason}. Set quality.traceabilityMode=strict to block this transition.\n`);
+    return false;
 }
 
 /**

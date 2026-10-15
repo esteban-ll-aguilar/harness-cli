@@ -6,6 +6,8 @@
  * RULE: All tests must FAIL before implementation (Red phase)
  * RULE: One concept per test
  * RULE: Test names are complete sentences
+ * Map each executable test with `@covers:REQ-001` so harness quality trace
+ * can prove the SDD → BDD → TDD chain.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';

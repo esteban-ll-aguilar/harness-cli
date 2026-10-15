@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadIndex, search } = require('./retrieval.js');
 const { loadGraph, queryGraph } = require('./graphIndex.js');
+const { ContextBudget } = require('./contextBudget.js');
 
 /**
  * Tiered Memory Loader
@@ -16,20 +17,28 @@ const TIERS = {
     RARE: 'rare'           // Full file — only on explicit request
 };
 
-function getAlwaysContext(harnessDir) {
+function getAlwaysContext(harnessDir, { budgetTokens = 250 } = {}) {
     const files = [
         'brain/AGENTS.md',
         'brain/constitution.md',
         'brain/north-star.md'
     ];
-    const context = [];
+    const budget = new ContextBudget(budgetTokens, { working: 1 });
     for (const file of files) {
         const fp = path.join(harnessDir, file);
         if (fs.existsSync(fp)) {
-            context.push(`--- ${file} ---\n${fs.readFileSync(fp, 'utf8')}`);
+            const full = fs.readFileSync(fp, 'utf8');
+            const remaining = Math.max(0, budgetTokens - budget.used);
+            if (remaining === 0) {
+                budget.omitted.push({ id: file, source: file, reason: 'total-budget', estimatedTokens: estimateTokens(full) });
+                continue;
+            }
+            const maxChars = remaining * 4;
+            const text = full.length > maxChars ? `${full.slice(0, Math.max(0, maxChars - 80))}\n\n[Truncated — read ${file} for the complete source.]` : full;
+            budget.add('working', { id: file, source: file, text });
         }
     }
-    return context.join('\n\n');
+    return budget.included.map(item => `--- ${item.source} ---\n${item.text}`).join('\n\n');
 }
 
 function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
