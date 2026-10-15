@@ -36,6 +36,9 @@ whether memory helps or distracts agents.
 - Make the generated-project architecture explicit: root `AGENTS.md` is the automatic entry
   point for Codex-compatible agents, `.harness/` is the canonical data store, and `.agents/` is
   a generated compatibility projection for tools that conventionally scan that folder.
+- Add an opt-out local semantic-memory engine using a Node dependency and a multilingual ONNX
+  embedding model. `harness init` provisions the model and a file-backed semantic index; all
+  external agent hosts query it through the same CLI/MCP context contract.
 
 ## Delivery Plan
 
@@ -62,8 +65,8 @@ whether memory helps or distracts agents.
 
 ## Non-goals
 
-- No autonomous LLM calls, vector database, cloud service, new runtime dependency, or hidden
-  background process.
+- No cloud vector database, background service, API key, Docker container or model-specific
+  dependency on Claude/Codex/OpenCode. One local Node embedding dependency is allowed.
 - No claim that the graph is a full enterprise GraphRAG system; large-scale semantic/community
   indexing is opt-in and must beat the baseline in evaluation first.
 - No silent deletion of raw memory or automatic human approval.

@@ -223,6 +223,7 @@ node_modules/
 .harness/memory/session-logs/
 .harness/memory/obsidian/
 .harness/.index/
+.harness/.models/
 *.log
 .env
 `);
@@ -289,6 +290,17 @@ isMonorepo: ${detection.isMonorepo}
         saveIndex(harnessDir, index);
         generateObsidian(cwd, harnessDir);
 
+        // Semantic long-term memory is local to Node. The embedding model is
+        // provisioned once into .harness/.models and the derived vector index
+        // stays beside the other rebuildable indexes (never a cloud service).
+        let semanticResult = null;
+        try {
+            const { buildSemanticIndex } = require('../utils/semanticMemory.js');
+            semanticResult = buildSemanticIndex(harnessDir);
+        } catch (e) {
+            semanticResult = { error: e.message };
+        }
+
         // Auto-generate the 6 built-in agent competency scripts
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
@@ -315,6 +327,11 @@ ${rulesResult && rulesResult.ok ? `
 📜 Default rules seeded: ${rulesResult.added} senior-engineer rules (data modeling, propose-before-build UI/UX, reuse, verification, security, performance, honesty…)
    harness rules list          → see them all
    harness rules preset senior → re-apply/retrofit on any project` : ''}
+${semanticResult?.error ? `
+⚠️  Semantic memory setup could not complete: ${semanticResult.error}
+   BM25 + graph retrieval remain active. Re-run: harness memory semantic setup` : `
+🧠 Semantic long-term memory ready: ${semanticResult?.documents?.length || 0} indexed chunks
+   Model cache: .harness/.models/embeddings (local Node inference)`}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering

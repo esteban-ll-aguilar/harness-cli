@@ -45,6 +45,19 @@
 - [ ] 3.5 Tests: typed edge construction, stale/superseded edge behavior, health findings and
       fixed evaluation metric outputs.
 
+## 3.6 Local semantic long-term memory
+
+- [ ] 3.6.1 Add the Node-local Transformers.js dependency and an embedding provider configured
+      for the pinned multilingual ONNX model; no API key or service is permitted.
+- [ ] 3.6.2 Implement a file-backed incremental vector index under `.harness/.index/semantic/`
+      with chunk/source provenance, cosine ranking, model manifest and fingerprint rebuild.
+- [ ] 3.6.3 Make `harness init` provision the local model/index by default, with explicit
+      `--no-semantic-memory` escape hatch and clear degraded-mode diagnostics.
+- [ ] 3.6.4 Fuse vector, BM25 and graph ranking in the bounded context controller; retrieval
+      remains deterministic and excludes superseded knowledge.
+- [ ] 3.6.5 Tests: manifest compatibility, incremental rebuild, Spanish semantic retrieval,
+      offline operation after provisioning, and BM25+graph fallback.
+
 ## 4. Safe multi-agent handoffs
 
 - [ ] 4.1 Add `harness handoff <specId> [--task=<id>] [--budget=N]`, built solely from the

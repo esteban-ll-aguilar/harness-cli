@@ -69,6 +69,7 @@ const { ContextBudget } = require('../src/utils/contextBudget.js');
 const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
 const { repairAgentLayout } = require('../src/utils/projectLayout.js');
 const { memoryHealth } = require('../src/utils/memoryHealth.js');
+const { cosineSimilarity, buildSemanticManifest } = require('../src/utils/semanticMemory.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -135,6 +136,13 @@ test('memory health reports dangling graph references without changing memory', 
     const health = memoryHealth(graph);
     assertEqual(health.danglingEdges.length, 1, 'Missing target must be reported');
     assertEqual(health.status, 'warn', 'Dangling evidence should warn, not mutate the graph');
+});
+
+test('semantic memory manifest fingerprints the local embedding model and index contract', () => {
+    const manifest = buildSemanticManifest({ model: 'Xenova/all-MiniLM-L6-v2', dimensions: 384, fingerprint: 'abc' });
+    assertEqual(manifest.provider, 'transformers.js-local', 'Semantic memory must run in Node, not through an agent provider');
+    assertEqual(manifest.dimensions, 384, 'Manifest must pin vector dimensions');
+    assertTrue(cosineSimilarity([1, 0], [1, 0]) > 0.99, 'Identical vectors should have maximum similarity');
 });
 
 // ============================================================

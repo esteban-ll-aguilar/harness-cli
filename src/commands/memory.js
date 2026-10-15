@@ -6,6 +6,7 @@ const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findRefer
 const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
 const { submitObservation, processInbox } = require('../utils/memorySteward.js');
 const { memoryHealth } = require('../utils/memoryHealth.js');
+const { buildSemanticIndex, loadSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -63,6 +64,9 @@ function memory(cwd, args) {
         case 'health':
             healthCmd(harnessDir);
             break;
+        case 'semantic':
+            semanticCmd(harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
@@ -105,6 +109,32 @@ function healthCmd(harnessDir) {
     if (report.status === 'pass') console.log('   ✅ No dangling or orphaned graph evidence.');
     console.log('');
     return report;
+}
+
+function semanticCmd(harnessDir, args) {
+    const sub = args[0] || 'status';
+    try {
+        if (sub === 'setup' || sub === 'index') {
+            const index = buildSemanticIndex(harnessDir);
+            console.log(`🧠 Semantic index ready: ${index.documents.length} chunks · ${index.dimensions} dimensions · ${index.model}`);
+            return index;
+        }
+        if (sub === 'search') {
+            const query = args.slice(1).join(' ').trim();
+            if (!query) { console.log('❌ Usage: harness memory semantic search <query>'); return; }
+            const hits = querySemanticIndex(harnessDir, query, { topN: 5 });
+            if (!hits.length) { console.log('⚠️  Semantic index is missing. Run: harness memory semantic setup'); return; }
+            console.log(`🧠 Semantic results for "${query}":`);
+            for (const hit of hits) console.log(`   ${hit.score.toFixed(3)}  ${hit.source}`);
+            return hits;
+        }
+        const index = loadSemanticIndex(harnessDir);
+        console.log(index ? `🧠 Semantic memory: ${index.documents.length} chunks · ${index.model} · built ${index.builtAt}` : '⚠️  Semantic memory not initialized. Run: harness memory semantic setup');
+        return index;
+    } catch (e) {
+        console.log(`❌ Semantic memory failed: ${e.message}`);
+        return null;
+    }
 }
 
 /**
@@ -389,4 +419,4 @@ function generateObsidian(cwd, harnessDir) {
     console.log(`   Regenerate with: harness memory obsidian`);
 }
 
-module.exports = { memory, generateObsidian, compactSessionLogs, healthCmd };
+module.exports = { memory, generateObsidian, compactSessionLogs, healthCmd, semanticCmd };

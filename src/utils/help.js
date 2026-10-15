@@ -11,7 +11,7 @@ function showHelp() {
 ║  harness init [--auto] [--repair]     Create or repair all entrypoints║
 ║  harness work interview|new|advance|agent  Run the delivery lifecycle ║
 ║  harness quality trace|gate|test|review|judge  Prove quality evidence║
-║  harness memory search|graph|steward|observe  Manage bounded memory  ║
+║  harness memory search|semantic|graph|steward  Long-term memory      ║
 ║  harness context [--spec=][--query=]   Bounded context for an agent  ║
 ║  harness status                       Project health & progress      ║
 ║                                                                      ║
@@ -25,7 +25,7 @@ function showHelp() {
 ║                                       MCP-compatible agent           ║
 ║                                                                      ║
 ║  MONOREPO: init auto-detects all languages; --lang=<lang> per change ║
-║  MEMORY:  Obsidian vault (.harness/) + BM25 + graph + symbol (0 deps)║
+║  MEMORY:  Vault + BM25 + graph + local semantic vectors             ║
 ║  FLOW:    stages followed by default; --to= records omissions in logs║
 ║                                                                      ║
 ║  WORKFLOW: Interview → Spec → Plan → Tasks → BDD → TDD → Review     ║

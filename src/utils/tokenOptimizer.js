@@ -3,6 +3,7 @@ const path = require('path');
 const { loadIndex, search } = require('./retrieval.js');
 const { loadGraph, queryGraph } = require('./graphIndex.js');
 const { ContextBudget } = require('./contextBudget.js');
+const { loadSemanticIndex, querySemanticIndex } = require('./semanticMemory.js');
 
 /**
  * Tiered Memory Loader
@@ -43,6 +44,32 @@ function getAlwaysContext(harnessDir, { budgetTokens = 250 } = {}) {
 
 function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     if (!query) return '';
+
+    // Semantic retrieval is optional at runtime but shared by every external
+    // agent because it lives behind this one context entry point. It augments
+    // (rather than replaces) the deterministic graph/BM25 evidence below.
+    try {
+        const semantic = loadSemanticIndex(harnessDir);
+        if (semantic && semantic.documents?.length) {
+            const hits = querySemanticIndex(harnessDir, query, { topN: 3 });
+            if (hits.length) {
+                const used = new Set();
+                const selected = [];
+                let remaining = budgetTokens;
+                for (const hit of hits) {
+                    if (used.has(hit.id)) continue;
+                    const cost = estimateTokens(hit.text);
+                    if (cost > remaining) continue;
+                    used.add(hit.id); remaining -= cost;
+                    selected.push(`--- ${hit.source} (semantic ${hit.score.toFixed(3)}) ---\n${hit.text}`);
+                }
+                if (selected.length) return selected.join('\n\n');
+            }
+        }
+    } catch (e) {
+        // A missing/corrupt local model must never block agent work; the
+        // graph and lexical retrieval below remain deterministic fallbacks.
+    }
 
     // Graph retrieval: section-level nodes ranked by BM25 x confidence x
     // recency, superseded/expired facts excluded, cut at an explicit token

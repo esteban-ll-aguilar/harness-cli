@@ -80,6 +80,23 @@ specs, expired overrides, superseded nodes still referenced, index age and token
 It is diagnostic and never changes data. `harness memory eval` runs versioned fixtures and
 calculates recall@k, stale-hit rate, budget compliance and traceability coverage.
 
+#### Local semantic retrieval
+
+Semantic retrieval is an in-process Node capability, not a dependency on the agent host. The
+CLI uses `@huggingface/transformers` with the multilingual 384-dimension ONNX model
+`Xenova/paraphrase-multilingual-MiniLM-L12-v2`. During `harness init` it explicitly provisions
+the model into `.harness/.models/` and builds `.harness/.index/semantic/`; subsequent use is
+offline (`allowRemoteModels = false`). The canonical Markdown vault is Git-tracked. Model files
+and vector index are derived and ignored by Git; a tracked manifest pins model ID, revision,
+dimension, chunking algorithm and vault fingerprint so every checkout can deterministically
+rebuild the identical index.
+
+For the expected vault scale, a compact JSON cosine-similarity index is simpler and more
+portable than a database/server. It is incremental by chunk fingerprint and has no resident
+process. Query fusion combines normalized semantic score, BM25 score and graph/provenance
+score. If local model/index setup is unavailable, the command reports degraded mode and uses
+BM25+graph rather than silently claiming semantic retrieval.
+
 ### 4. Agent coordination
 
 `harness handoff <spec> [--task=<id>]` emits a bounded packet: objective, owned files/claim,
@@ -142,3 +159,14 @@ All `.harnessrc` and frontmatter fields are optional. Legacy specs lacking IDs r
 but report `legacy-unmapped` WARN until migrated. Initial rollout keeps lifecycle enforcement in
 warning mode; strict mode is opt-in per project and becomes the default only after evaluation
 fixtures and migration tooling are stable.
+
+## Local semantic memory implementation
+
+Long-term semantic retrieval is implemented in-process with the Node dependency
+`@huggingface/transformers`. `harness init` provisions a pinned ONNX embedding model into
+`.harness/.models/embeddings/` and builds a file-backed vector index under
+`.harness/.index/semantic/`. Both are derived artifacts ignored by Git; the Markdown vault,
+frontmatter, links, provenance and index manifest remain the versioned source of truth. This
+works identically for Codex, Claude, OpenCode and any other agent because they all access it
+through `harness context`, not through their own embedding APIs. If local inference is absent
+or corrupted, retrieval falls back deterministically to graph + BM25 and reports the condition.
