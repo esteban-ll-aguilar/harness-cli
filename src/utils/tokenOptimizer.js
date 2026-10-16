@@ -44,6 +44,8 @@ function getAlwaysContext(harnessDir, { budgetTokens = 250 } = {}) {
 
 function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     if (!query) return '';
+    const selected = [];
+    let remaining = budgetTokens;
 
     // Semantic retrieval is optional at runtime but shared by every external
     // agent because it lives behind this one context entry point. It augments
@@ -54,8 +56,6 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
             const hits = querySemanticIndex(harnessDir, query, { topN: 3, allowRemote: false });
             if (hits.length) {
                 const used = new Set();
-                const selected = [];
-                let remaining = budgetTokens;
                 for (const hit of hits) {
                     if (used.has(hit.id)) continue;
                     const cost = estimateTokens(hit.text);
@@ -63,7 +63,6 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
                     used.add(hit.id); remaining -= cost;
                     selected.push(`--- ${hit.source} (semantic ${hit.score.toFixed(3)}) ---\n${hit.text}`);
                 }
-                if (selected.length) return selected.join('\n\n');
             }
         }
     } catch (e) {
@@ -76,14 +75,20 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     // budget — never dumps a whole file just because one section matched.
     const graph = loadGraph(harnessDir, { rebuild: true });
     if (graph && graph.numNodes > 0) {
-        const { nodes } = queryGraph(graph, query, { budgetTokens });
+        const { nodes } = queryGraph(graph, query, { budgetTokens: remaining });
         if (nodes.length > 0) {
-            return nodes.map(n => {
+            for (const n of nodes) {
                 const label = n.heading ? `${n.file}#${n.heading}` : n.file;
-                return `--- ${label} (${n.type}) ---\n${n.text}`;
-            }).join('\n\n');
+                const text = `--- ${label} (${n.type}) ---\n${n.text}`;
+                const cost = estimateTokens(text);
+                if (cost <= remaining) { selected.push(text); remaining -= cost; }
+            }
         }
     }
+
+    // A vector hit must not suppress graph evidence, which carries validity
+    // and confidence. The combined payload remains strictly budgeted.
+    if (selected.length) return selected.join('\n\n');
 
     // Fallback: whole-file BM25 (empty/no-heading vault, or graph build failed).
     const index = loadIndex(harnessDir, { rebuild: true });

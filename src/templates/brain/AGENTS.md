@@ -115,14 +115,15 @@ Read the full constitution: `brain/constitution.md`
 
 ---
 
-## 5. Workflow Obligatorio (The 7 Agents)
+## 5. Workflow Obligatorio (6 gates + especialistas)
 
 You MUST follow this sequence. No skipping phases.
 
 **Context and memory rule:** Before work, run `harness context` with the relevant spec/query.
 Use `harness work` and `harness quality` as the primary command groups. Agents may submit
 evidence-bearing observations to `memory/inbox/`; only the Memory Steward may promote durable
-knowledge to `brain/`.
+knowledge to `brain/`. Backend Engineer, Frontend Engineer and Security Reviewer are supporting
+specialists: they may help a claimed task but never skip an approval gate.
 
 ### Phase 1: 🎙️ Interviewer
 - **Goal:** Extract complete requirements from user/stakeholder
@@ -171,6 +172,21 @@ knowledge to `brain/`.
   - Performance: P95 < 200ms (if applicable)
 - **Output:** `memory/session-logs/review-xxx.md`
 - **If PASS:** Mark spec as DONE
+
+### Memory Steward: 🧠 Durable-memory gate
+- **Goal:** Validate, deduplicate and promote evidence-bearing observations.
+- **Input:** `memory/inbox/` only — claim, scope, source and evidence are required.
+- **Output:** Versioned pattern/decision plus a promotion or rejection receipt.
+- **Constraint:** No other agent writes durable memory. Semantic indexes are derived retrieval
+  artifacts, never a source of truth.
+
+### Supporting specialists
+- **⚙️ Backend Engineer:** contract-first services, authorization, data integrity, resilient
+  external boundaries and integration tests.
+- **🖥️ Frontend Engineer:** accessible and responsive UI; loading, empty, error and success
+  states; component/E2E evidence.
+- **🔐 Security Reviewer:** threat-sensitive review before Guardian for auth, data, abuse and
+  dependency risks.
 
 ---
 
@@ -239,11 +255,13 @@ Feature: [Feature Name]
 
 ## 9. Memory & Context Loading
 
-This project uses **tiered memory + BM25 retrieval** over the `.harness` vault
+This project uses **tiered memory + local hybrid retrieval** over the `.harness` vault
 (Markdown in `brain/`, `specs/`, `memory/` — open `.harness/` as an Obsidian vault):
 
 - **ALWAYS loaded:** AGENTS.md (includes every project rule) + constitution.md + north-star.md (~500 tokens)
-- **ON DEMAND:** retrieval + symbol lookup, folded into one call (see below)
+- **ON DEMAND:** semantic vectors + provenance graph + BM25 + symbol lookup, folded into one
+  budgeted call. The semantic model runs locally from `.harness/.models/embeddings`; if it is
+  unavailable, graph + BM25 remain the deterministic fallback.
 - **TRIGGER:** Load spec.md when working on that feature
 - **RARE:** Full vault scan (only on explicit request)
 
@@ -263,20 +281,17 @@ This project uses **tiered memory + BM25 retrieval** over the `.harness` vault
 
 | Command | Description |
 |---------|-------------|
-| `/harness-new-change <name>` | Create new SDD-BDD-TDD feature flow |
-| `/harness-status` | Show project health & progress |
-| `/harness-review` | Run guardian quality gates |
-| `/harness-interview` | Start requirement gathering |
-| `/harness-spec <name>` | Generate spec template |
-| `/harness-advance <id>` | Move a spec to the next agent stage |
-| `/harness-context` | **Call this proactively.** Bundles rules, retrieval (`--query=`), symbol lookup (`--symbol=`) and state in one call |
-| `/harness-gate clarify\|approve` | Lifecycle checkpoints — see section 5 |
-| `/harness-judge` | Self-assess "must" rules against the diff |
+| `harness init` | Initialize or repair the canonical entry points |
+| `harness work …` | Interview, create/advance a change and run agents |
+| `harness memory …` | Search, health, semantic index and Memory Steward operations |
+| `harness quality …` | Tests, review, gates, judge and traceability |
+| `harness context` | **Call proactively.** Bounded hybrid retrieval and project state |
+| `harness status` | Project health & progress |
 
 **BEFORE you act:** read `.harnessrc`, call `harness context --query="<topic>"`
 (pulls prior decisions + rules automatically — see section 9), and follow the
-project rules in section 13. This project can also be driven via MCP
-(`harness-mcp` exposes 20 tools to any MCP agent).
+project rules in the constitution. MCP and legacy aliases may exist for compatibility, but the
+six command groups above are the supported operating surface.
 
 ---
 

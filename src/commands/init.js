@@ -47,6 +47,7 @@ async function initProject(cwd, args) {
     const harnessDir = path.join(cwd, '.harness');
     const force = args.includes('--force');
     const repair = args.includes('--repair');
+    const semanticMemory = !args.includes('--no-semantic-memory');
 
     if (fs.existsSync(harnessDir) && repair && !force) {
         repairAgentLayout(cwd, harnessDir);
@@ -195,7 +196,11 @@ async function initProject(cwd, args) {
                 tester: { enabled: true, model: 'capable' },
                 coder: { enabled: true, model: 'mid' },
                 reviewer: { enabled: true, model: 'capable' },
-                guardian: { enabled: true, model: 'fast' }
+                guardian: { enabled: true, model: 'fast' },
+                'memory-steward': { enabled: true, model: 'fast' },
+                'backend-engineer': { enabled: true, model: 'capable' },
+                'frontend-engineer': { enabled: true, model: 'capable' },
+                'security-reviewer': { enabled: true, model: 'capable' }
             },
             tools: {
                 selected: selectedTools,
@@ -304,14 +309,16 @@ isMonorepo: ${detection.isMonorepo}
         // provisioned once into .harness/.models and the derived vector index
         // stays beside the other rebuildable indexes (never a cloud service).
         let semanticResult = null;
-        try {
-            const { buildSemanticIndex } = require('../utils/semanticMemory.js');
-            semanticResult = buildSemanticIndex(harnessDir);
-        } catch (e) {
-            semanticResult = { error: e.message };
+        if (semanticMemory) {
+            try {
+                const { buildSemanticIndex } = require('../utils/semanticMemory.js');
+                semanticResult = buildSemanticIndex(harnessDir);
+            } catch (e) {
+                semanticResult = { error: e.message };
+            }
         }
 
-        // Auto-generate the 6 built-in agent competency scripts
+        // Auto-generate the built-in lifecycle, specialist and memory scripts.
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
 
@@ -337,7 +344,9 @@ ${rulesResult && rulesResult.ok ? `
 📜 Default rules seeded: ${rulesResult.added} senior-engineer rules (data modeling, propose-before-build UI/UX, reuse, verification, security, performance, honesty…)
    harness rules list          → see them all
    harness rules preset senior → re-apply/retrofit on any project` : ''}
-${semanticResult?.error ? `
+${!semanticMemory ? `
+ℹ️  Semantic memory skipped (--no-semantic-memory).
+   BM25 + graph retrieval remain active; enable later with: harness memory semantic setup` : semanticResult?.error ? `
 ⚠️  Semantic memory setup could not complete: ${semanticResult.error}
    BM25 + graph retrieval remain active. Re-run: harness memory semantic setup` : `
 🧠 Semantic long-term memory ready: ${semanticResult?.documents?.length || 0} indexed chunks

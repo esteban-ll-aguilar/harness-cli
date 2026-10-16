@@ -7,7 +7,7 @@ const { loadIndex, search } = require('../utils/retrieval.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
-const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'reviewer', 'guardian', 'memory-steward'];
+const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'backend-engineer', 'frontend-engineer', 'security-reviewer', 'reviewer', 'guardian', 'memory-steward'];
 
 const DEFAULT_AGENTS = {
     interviewer: {
@@ -33,6 +33,21 @@ const DEFAULT_AGENTS = {
         model: 'mid',
         goal: 'Implement the spec task by task following Red-Green-Refactor.',
         instructions: 'Read tasks.md + spec.md + tests/. Implement each task with TDD. Respect the constitution (max 200 lines/file, no any, parameterized SQL).'
+    },
+    'backend-engineer': {
+        emoji: '⚙️', model: 'capable',
+        goal: 'Implement and review service boundaries, data integrity and operational behavior.',
+        instructions: 'Work as a supporting specialist for a claimed task. Define contracts first, validate inputs at boundaries, preserve authorization, use transactions/idempotency where relevant, and add unit plus integration tests. Submit durable findings to memory/inbox; do not promote them.'
+    },
+    'frontend-engineer': {
+        emoji: '🖥️', model: 'capable',
+        goal: 'Implement accessible, resilient user-facing flows from approved BDD scenarios.',
+        instructions: 'Work as a supporting specialist for a claimed task. Cover loading, empty, error and success states; keyboard navigation, semantics, responsive behavior and API failure handling. Add component/E2E tests as appropriate and submit findings to memory/inbox.'
+    },
+    'security-reviewer': {
+        emoji: '🔐', model: 'capable',
+        goal: 'Review threat-sensitive changes before Guardian approval.',
+        instructions: 'Check authentication, authorization, input/output handling, secrets, dependency risk and abuse controls. Report evidence and unresolved risks; do not silently approve an untested security property.'
     },
     reviewer: {
         emoji: '🔍',

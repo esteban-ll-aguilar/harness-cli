@@ -2,7 +2,7 @@
 
 - [ ] 0.1 Add baseline fixtures for a legacy spec, complete traceable spec, stale decision and
       budget pressure case in `tests/runner.js` fixtures; record current retrieval/gate behavior.
-- [ ] 0.2 Define additive `.harnessrc.quality` defaults (`traceabilityMode: warn`,
+- [x] 0.2 Define additive `.harnessrc.quality` defaults (`traceabilityMode: warn`,
       `contextBudgetTokens: 1200`) in `init.js` and read-time fallbacks in consumers.
 - [ ] 0.3 Extend the project templates with requirement IDs, `@covers` examples, provenance
       frontmatter and an agent completion receipt template.
@@ -12,7 +12,7 @@
 
 - [x] 1.1 Create `src/utils/traceability.js` to parse normative requirement IDs, Gherkin
       `@covers:` tags and test coverage comments without language-specific dependencies.
-- [ ] 1.2 Add `harness trace <specId>` with a compact coverage matrix and machine-readable
+- [x] 1.2 Add `harness trace <specId>` with a compact coverage matrix and machine-readable
       `--json` output.
 - [ ] 1.3 Add Tester and Coder lifecycle checks in `advance.js`, initially warning by default
       and strict when `quality.traceabilityMode` is `strict`.
@@ -47,13 +47,13 @@
 
 ## 3.6 Local semantic long-term memory
 
-- [ ] 3.6.1 Add the Node-local Transformers.js dependency and an embedding provider configured
+- [x] 3.6.1 Add the Node-local Transformers.js dependency and an embedding provider configured
       for the pinned multilingual ONNX model; no API key or service is permitted.
-- [ ] 3.6.2 Implement a file-backed incremental vector index under `.harness/.index/semantic/`
+- [x] 3.6.2 Implement a file-backed incremental vector index under `.harness/.index/semantic/`
       with chunk/source provenance, cosine ranking, model manifest and fingerprint rebuild.
-- [ ] 3.6.3 Make `harness init` provision the local model/index by default, with explicit
+- [x] 3.6.3 Make `harness init` provision the local model/index by default, with explicit
       `--no-semantic-memory` escape hatch and clear degraded-mode diagnostics.
-- [ ] 3.6.4 Fuse vector, BM25 and graph ranking in the bounded context controller; retrieval
+- [x] 3.6.4 Fuse vector, BM25 and graph ranking in the bounded context controller; retrieval
       remains deterministic and excludes superseded knowledge.
 - [ ] 3.6.5 Tests: manifest compatibility, incremental rebuild, Spanish semantic retrieval,
       offline operation after provisioning, and BM25+graph fallback.
@@ -73,7 +73,7 @@
 
 - [x] 4.5.1 Add the built-in `memory-steward` role, structured observation inbox and
       deterministic promotion/rejection processing with provenance checks.
-- [ ] 4.5.2 Update `harness init` to generate/repair the root `AGENTS.md` entry point and a
+- [x] 4.5.2 Update `harness init` to generate/repair the root `AGENTS.md` entry point and a
       `.agents/` compatibility projection without duplicating canonical memory.
 - [ ] 4.5.3 Consolidate the documented command/MCP surface into `init`, `work`, `memory`,
       `quality`, `context` and `status`; retain hidden compatibility aliases with tests.

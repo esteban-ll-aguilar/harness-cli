@@ -69,7 +69,8 @@ const { ContextBudget } = require('../src/utils/contextBudget.js');
 const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
 const { repairAgentLayout } = require('../src/utils/projectLayout.js');
 const { memoryHealth } = require('../src/utils/memoryHealth.js');
-const { cosineSimilarity, buildSemanticManifest } = require('../src/utils/semanticMemory.js');
+const { cosineSimilarity, buildSemanticManifest, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
+const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -143,6 +144,13 @@ test('semantic memory manifest fingerprints the local embedding model and index 
     assertEqual(manifest.provider, 'transformers.js-local', 'Semantic memory must run in Node, not through an agent provider');
     assertEqual(manifest.dimensions, 384, 'Manifest must pin vector dimensions');
     assertTrue(cosineSimilarity([1, 0], [1, 0]) > 0.99, 'Identical vectors should have maximum similarity');
+    assertTrue(DEFAULT_MODEL.includes('multilingual'), 'Default embeddings must support the project language, including Spanish');
+});
+
+test('specialists and the Memory Steward are built-in roles, not optional prose', () => {
+    for (const name of ['memory-steward', 'backend-engineer', 'frontend-engineer', 'security-reviewer']) {
+        assertTrue(Boolean(DEFAULT_AGENTS[name]?.instructions), `${name} must have executable instructions`);
+    }
 });
 
 // ============================================================

@@ -5,7 +5,10 @@ const { spawnSync } = require('child_process');
 const { listFiles } = require('./fileUtils.js');
 const { fingerprint } = require('./retrieval.js');
 
-const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
+// Multilingual by default: durable project knowledge may be written in Spanish,
+// English, or both. Transformers.js downloads the ONNX artifacts once during
+// `harness init` and uses the project-local cache afterwards.
+const DEFAULT_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
 const INDEX_VERSION = 1;
 
 function cosineSimilarity(a, b) {

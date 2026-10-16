@@ -79,6 +79,13 @@ function memory(cwd, args) {
   harness memory stats              Show corpus statistics
   harness memory compact [--days=N] Archive session logs older than N days (default 30)
                                     into a digest — keeps search relevant, never deletes data
+  harness memory observe --claim= --source= --scope= --evidence=
+                                    Submit evidence for the Memory Steward
+  harness memory steward [--actor=memory-steward]
+                                    Validate and promote durable observations
+  harness memory health             Check graph provenance and dangling references
+  harness memory semantic setup|search|status
+                                    Manage local, repo-backed semantic retrieval
 `);
     }
 }
