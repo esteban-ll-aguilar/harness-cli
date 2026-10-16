@@ -6,7 +6,7 @@ const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findRefer
 const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
 const { submitObservation, processInbox } = require('../utils/memorySteward.js');
 const { memoryHealth } = require('../utils/memoryHealth.js');
-const { buildSemanticIndex, loadSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
+const { buildSemanticIndex, getSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -128,7 +128,7 @@ function semanticCmd(harnessDir, args) {
             for (const hit of hits) console.log(`   ${hit.score.toFixed(3)}  ${hit.source}`);
             return hits;
         }
-        const index = loadSemanticIndex(harnessDir);
+        const index = getSemanticIndex(harnessDir, { rebuildIfMissing: false });
         console.log(index ? `🧠 Semantic memory: ${index.documents.length} chunks · ${index.model} · built ${index.builtAt}` : '⚠️  Semantic memory not initialized. Run: harness memory semantic setup');
         return index;
     } catch (e) {

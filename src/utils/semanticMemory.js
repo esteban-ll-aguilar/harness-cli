@@ -84,11 +84,19 @@ function loadSemanticIndex(harnessDir) {
     try { return JSON.parse(fs.readFileSync(semanticIndexPath(harnessDir), 'utf8')); } catch (e) { return null; }
 }
 
-function querySemanticIndex(harnessDir, query, options = {}) {
+function getSemanticIndex(harnessDir, { rebuildIfMissing = true, ...options } = {}) {
     const index = loadSemanticIndex(harnessDir);
+    const currentFingerprint = fingerprint(harnessDir);
+    if (index && index.version === INDEX_VERSION && index.fingerprint === currentFingerprint) return index;
+    if (!index && !rebuildIfMissing) return null;
+    return buildSemanticIndex(harnessDir, { model: index?.model || options.model || DEFAULT_MODEL, ...options });
+}
+
+function querySemanticIndex(harnessDir, query, options = {}) {
+    const index = getSemanticIndex(harnessDir, options);
     if (!index) return [];
-    const [vector] = embedTexts(harnessDir, [query], { model: index.model, allowRemote: options.allowRemote !== false });
+    const [vector] = embedTexts(harnessDir, [query], { model: index.model, allowRemote: options.allowRemote === true });
     return index.documents.map(d => ({ ...d, score: cosineSimilarity(vector, d.vector) })).sort((a, b) => b.score - a.score).slice(0, options.topN || 5);
 }
 
-module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, semanticIndexPath, semanticModelDir, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, querySemanticIndex };
+module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, semanticIndexPath, semanticModelDir, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };

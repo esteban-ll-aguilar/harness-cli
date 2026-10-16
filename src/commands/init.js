@@ -228,6 +228,16 @@ node_modules/
 .env
 `);
 
+        // Keep canonical Markdown memory versionable, while preventing large,
+        // model-specific derived artifacts from creating Git conflicts.
+        const gitignorePath = path.join(cwd, '.gitignore');
+        const semanticIgnores = ['.harness/.index/', '.harness/.models/', '.harness/memory/session-logs/'];
+        const existingGitignore = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+        const missingIgnores = semanticIgnores.filter(rule => !existingGitignore.split('\n').includes(rule));
+        if (missingIgnores.length) {
+            fs.writeFileSync(gitignorePath, `${existingGitignore}${existingGitignore && !existingGitignore.endsWith('\n') ? '\n' : ''}# Harness derived indexes and local embedding model\n${missingIgnores.join('\n')}\n`);
+        }
+
         const rootObsidian = path.join(cwd, '.obsidian');
         if (!fs.existsSync(rootObsidian)) {
             try {

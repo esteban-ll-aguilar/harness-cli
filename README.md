@@ -10,7 +10,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 
 - **🔍 Auto-Language Detection** — Detects TypeScript, Python, Go, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Dart/Flutter
 - **📦 Monorepo Support** — Scans up to 3 levels deep (skips `node_modules`/build dirs), interactive selection
-- **🧠 RAG Memory (BM25)** — Real retrieval over the vault, zero dependencies, `harness memory search`
+- **🧠 Hybrid Long-Term Memory** — BM25 + provenance graph + local semantic vectors; all agents use the same bounded retrieval through `harness context`
 - **🗂️ Obsidian Vault** — `.harness/` opens as a vault, with auto-generated Map of Content
 - **🔌 MCP Server** — `harness-mcp` exposes 20 tools to ANY MCP-compatible agent
 - **🤖 Self-Generating Agents** — 6 built-in agents auto-created at init + `harness agent new`
@@ -83,7 +83,17 @@ harness orchestrate claim 001
 # Symbol lookup + memory upkeep
 harness memory symbol getUserByEmail
 harness memory compact --days=30
+
+# Local semantic long-term memory (provisioned automatically by harness init)
+harness memory semantic status
+harness memory semantic search "authentication credentials"
 ```
+
+`harness init` downloads the pinned embedding model once and stores it locally under
+`.harness/.models/embeddings/`. Every AI tool uses the same semantic index through
+`harness context`; no API key, Docker daemon, cloud vector database, Ollama, or per-agent
+setup is required. Markdown remains the versionable source of truth; model files and vector
+indexes are rebuildable and ignored by Git.
 
 ## 🔌 AI Tool Selection
 
@@ -215,6 +225,8 @@ harness new-change mobile-login --lang=dart # Uses Dart
 │       ├── tests/       # TDD test stubs (language-specific!)
 │       └── docs/        # Additional docs
 ├── .index/          # BM25 retrieval index (derived, gitignored)
+│   └── semantic/     # Local embedding vectors (derived, gitignored)
+├── .models/          # ONNX embedding model provisioned by init (derived, gitignored)
 ├── tests/           # Global test utilities
 │   ├── unit/
 │   ├── integration/

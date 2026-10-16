@@ -3,7 +3,7 @@ const path = require('path');
 const { loadIndex, search } = require('./retrieval.js');
 const { loadGraph, queryGraph } = require('./graphIndex.js');
 const { ContextBudget } = require('./contextBudget.js');
-const { loadSemanticIndex, querySemanticIndex } = require('./semanticMemory.js');
+const { getSemanticIndex, querySemanticIndex } = require('./semanticMemory.js');
 
 /**
  * Tiered Memory Loader
@@ -49,9 +49,9 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     // agent because it lives behind this one context entry point. It augments
     // (rather than replaces) the deterministic graph/BM25 evidence below.
     try {
-        const semantic = loadSemanticIndex(harnessDir);
+        const semantic = getSemanticIndex(harnessDir, { rebuildIfMissing: false, allowRemote: false });
         if (semantic && semantic.documents?.length) {
-            const hits = querySemanticIndex(harnessDir, query, { topN: 3 });
+            const hits = querySemanticIndex(harnessDir, query, { topN: 3, allowRemote: false });
             if (hits.length) {
                 const used = new Set();
                 const selected = [];
