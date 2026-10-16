@@ -69,7 +69,7 @@ const { ContextBudget } = require('../src/utils/contextBudget.js');
 const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
 const { repairAgentLayout } = require('../src/utils/projectLayout.js');
 const { memoryHealth } = require('../src/utils/memoryHealth.js');
-const { cosineSimilarity, buildSemanticManifest, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
+const { cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, buildSemanticIndex, getSemanticIndex, querySemanticIndex, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
 const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
 const { validateCompletionReceipt } = require('../src/utils/completionReceipt.js');
@@ -234,6 +234,42 @@ test('semantic memory manifest fingerprints the local embedding model and index 
     assertEqual(manifest.dimensions, 384, 'Manifest must pin vector dimensions');
     assertTrue(cosineSimilarity([1, 0], [1, 0]) > 0.99, 'Identical vectors should have maximum similarity');
     assertTrue(DEFAULT_MODEL.includes('multilingual'), 'Default embeddings must support the project language, including Spanish');
+});
+
+test('semantic memory incrementally reuses vectors and retrieves Spanish offline after provisioning', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-semantic-test-'); const h = path.join(tmp, '.harness');
+    fs.mkdirSync(path.join(h, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(h, 'brain', 'seguridad.md'), 'Las credenciales se validan antes de iniciar sesión.');
+    const calls = [];
+    const embedder = (_dir, texts, options) => {
+        assertFalse(options.allowRemote === true, 'Provisioned/offline retrieval must not require network access');
+        calls.push(...texts);
+        return texts.map(text => /credenciales|validar/i.test(text) ? [1, 0] : [0, 1]);
+    };
+    const first = buildSemanticIndex(h, { embedder, allowRemote: false });
+    assertEqual(calls.length, 1, 'Initial index embeds the first chunk');
+    assertTrue(isCompatibleSemanticIndex(first), 'Written manifest must be compatible with its vectors');
+    fs.writeFileSync(path.join(h, 'brain', 'producto.md'), 'La pantalla muestra un resumen del pedido.');
+    const second = buildSemanticIndex(h, { embedder, allowRemote: false });
+    assertEqual(calls.length, 2, 'A rebuild embeds only the new chunk, not the unchanged one');
+    assertEqual(second.documents.length, 2, 'Incremental rebuild retains current chunks only');
+    const cached = getSemanticIndex(h, { rebuildIfMissing: false, allowRemote: false });
+    assertTrue(cached, 'A compatible, provisioned index is usable offline');
+    const hits = querySemanticIndex(h, 'validar credenciales de acceso', { embedder, allowRemote: false, topN: 1 });
+    assertEqual(hits[0].source, 'brain/seguridad.md', 'Spanish semantic query should retrieve the relevant durable memory');
+    fs.rmSync(tmp, { recursive: true });
+});
+
+test('semantic memory rejects an incompatible manifest and deterministic context falls back to BM25 plus graph', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-semantic-test-'); const h = path.join(tmp, '.harness');
+    fs.mkdirSync(path.join(h, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(h, 'brain', 'auth.md'), '# Autenticación\nValidar credenciales antes de conceder acceso.');
+    fs.mkdirSync(path.join(h, '.index', 'semantic'), { recursive: true });
+    fs.writeFileSync(path.join(h, '.index', 'semantic', 'index.json'), JSON.stringify({ version: 999, documents: [] }));
+    assertFalse(isCompatibleSemanticIndex(require('../src/utils/semanticMemory.js').loadSemanticIndex(h)), 'A mismatched manifest must not be trusted');
+    const fallback = getOnDemandContext(h, 'credenciales acceso', { budgetTokens: 80 });
+    assertTrue(fallback.includes('credenciales'), 'Graph/BM25 retrieval must still serve context when semantic inference is unavailable');
+    fs.rmSync(tmp, { recursive: true });
 });
 
 test('specialists and the Memory Steward are built-in roles, not optional prose', () => {

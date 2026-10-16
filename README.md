@@ -4,7 +4,7 @@
 
 A production-grade, AI-agnostic harness for building exceptional software through Specification-Driven, Behavior-Driven, and Test-Driven Development.
 
-**Version:** 1.1.2 | **Status:** Production Ready ✅ | **Tests:** 88/88 passing ✅
+**Version:** 1.3.2 | **Status:** Release candidate verified | **Tests:** 118/118 passing ✅
 
 ## ✨ Features
 
@@ -12,8 +12,8 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 - **📦 Monorepo Support** — Scans up to 3 levels deep (skips `node_modules`/build dirs), interactive selection
 - **🧠 Hybrid Long-Term Memory** — BM25 + provenance graph + local semantic vectors; all agents use the same bounded retrieval through `harness context`
 - **🗂️ Obsidian Vault** — `.harness/` opens as a vault, with auto-generated Map of Content
-- **🔌 MCP Server** — `harness-mcp` exposes 20 tools to ANY MCP-compatible agent
-- **🤖 Self-Generating Agents** — 6 built-in agents auto-created at init + `harness agent new`
+- **🔌 MCP Server** — `harness-mcp` exposes 8 composite tools to any MCP-compatible agent
+- **🤖 Specialized agents** — 10 built-in roles, including backend, frontend, security and a single-writer Memory Steward
 - **📜 `harness rules`** — Project rules synced into AGENTS.md and enforced by the Guardian
 - **📌 Spec Lifecycle** — `harness advance` walks each spec through the 6 agents → done
 - **📦 Context Bundles** — `harness context` dumps the full optimized prompt for any AI tool
@@ -22,7 +22,7 @@ A production-grade, AI-agnostic harness for building exceptional software throug
 - **Tiered Memory**: Optimizes token usage without degrading results
 - **EARS Notation**: Unambiguous, parseable requirements
 - **CI/CD Gates**: Automated quality checks before production
-- **Self-Tested**: 88 automated tests covering core functionality
+- **Self-Tested**: 118 automated tests covering workflow gates, adversarial traceability and memory fallbacks
 
 ## 🚀 Quick Start
 
@@ -95,6 +95,30 @@ harness memory semantic search "authentication credentials"
 harness quality report --json
 ```
 
+### Native local-inference scripts
+
+The semantic-memory runtime includes `onnxruntime-node` and `protobufjs`. Their `postinstall`
+scripts prepare the native ONNX runtime used to create embeddings locally. Some npm setups block
+all install scripts by default and show an `npm warn install-scripts` warning. It is a security
+policy notice, not a harness error.
+
+If you trust this package and want local semantic memory, allow **only** those two scripts for
+this install:
+
+```bash
+# Installing a locally built release artifact
+npm install -g ./esteban-ll-aguilar-harness-cli-1.3.2.tgz \
+  --allow-scripts=onnxruntime-node,protobufjs
+
+# Or installing the published package
+npm install -g @esteban-ll-aguilar/harness-cli \
+  --allow-scripts=onnxruntime-node,protobufjs
+```
+
+Do not enable scripts globally unless that is an explicit policy decision for your machine.
+Without native inference, the harness remains usable and reports semantic memory as degraded;
+BM25 plus the provenance graph continue to provide deterministic retrieval.
+
 `harness init` downloads the pinned embedding model once and stores it locally under
 `.harness/.models/embeddings/`. Every AI tool uses the same semantic index through
 `harness context`; no API key, Docker daemon, cloud vector database, Ollama, or per-agent
@@ -134,17 +158,11 @@ Wire the harness into Claude Code, Codex, OpenCode, Cursor, Windsurf… as an MC
 }
 ```
 
-Exposes 20 tools: `harness_init`, `harness_new_change`, `harness_status`,
-`harness_review`, `harness_context` (the automatic entry point — retrieval,
-symbol lookup, rules and state in one call), `harness_agent_run`,
-`harness_agent_list`, `harness_rules_add`, `harness_rules_preset`,
-`harness_advance`, `harness_approve`, `harness_orchestrate_status`,
-`harness_orchestrate_claim`, `harness_orchestrate_release`, and more — all
-zero-dependency (stdio + JSON-RPC 2.0). Deliberately NOT separate tools
-(folded into `harness_context`, or already redundant): `harness_memory_search`,
-`harness_memory_symbol`, `harness_rules_list`, `harness_clarify` (`harness_advance`
-already runs that check and reports it) — still available as CLI commands for
-a human exploring the vault directly.
+Exposes 8 composite tools: `harness_init`, `harness_new_change`, `harness_status`,
+`harness_context`, `harness_agent_run`, `harness_advance`, `harness_review`, and
+`harness_test`. The context tool is the automatic entry point for bounded retrieval,
+rules and project state. The lower-level CLI commands remain available for humans,
+but agents do not need to memorize a large MCP surface.
 
 ## 🚀 Quick Start (Alternative)
 
@@ -155,7 +173,8 @@ cd harness-cli
 
 # 2. Empaqueta e instala globalmente
 npm pack                    # Genera esteban-ll-aguilar-harness-cli-<version>.tgz
-npm install -g ./esteban-ll-aguilar-harness-cli-1.1.0.tgz
+npm install -g ./esteban-ll-aguilar-harness-cli-1.3.2.tgz \
+  --allow-scripts=onnxruntime-node,protobufjs
 
 # 3. Inicializa en tu proyecto
 cd tu-proyecto
@@ -312,14 +331,19 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 
 | Tier | Content | Tokens | When |
 |------|---------|--------|------|
-| **ALWAYS** | AGENTS.md + constitution.md + north-star.md | ~500 | Every session |
-| **ON_DEMAND** | BM25 retrieval over the vault | Variable | `harness memory search "<q>"` |
-| **TRIGGER** | Load spec.md when file changes | ~200 | After tool use |
-| **RARE** | Full vault scan | Variable | Explicit request |
+| **Working** | Sectioned agent rules + active spec | 250 | Every context request |
+| **Episodic** | Current task, claims and recent events | 200 | When relevant |
+| **Semantic** | Local vectors + BM25 + provenance graph | 600 | Query-driven retrieval |
+| **Reserve** | Direct evidence dependencies | 150 | Only if budget remains |
 
 ### Retrieval (RAG)
 
-- Zero-dependency BM25 (Okapi) index in `.harness/.index/`, rebuilt automatically when files change.
+- Markdown is the versioned source of truth. Derived BM25, graph and semantic indexes live under
+  `.harness/.index/`; the pinned local model lives in `.harness/.models/` and is rebuildable.
+- Semantic vectors use the multilingual local ONNX model, are incrementally rebuilt by chunk,
+  and work offline after `harness init` has provisioned the model.
+- If semantic inference cannot run, `harness context` explicitly degrades to provenance graph +
+  BM25 instead of failing work or using a cloud provider.
 - `harness memory search "auth token"` returns ranked docs with snippets.
 - **Accent-insensitive**: search is diacritic-normalized (`página` ≟ `pagina`, `código` ≟
   `codigo`) — important since this project's own rules/specs are often written in
@@ -357,7 +381,9 @@ but it can build the judge prompt and enforce the recorded verdict:
 
 ### Agents
 
-- 6 built-in agents are auto-registered with competency scripts at `harness init`.
+- 10 built-in agents are auto-registered with competency scripts at `harness init`; supporting
+  backend, frontend and security specialists assist the core six-stage flow, while the Memory
+  Steward is the sole durable-memory writer.
 - `harness agent new <name> --goal=... --instructions=...` creates custom agents.
 - `harness agent run <agent> [specId]` builds a ready-to-paste context prompt.
 - `harness agent ensure` regenerates missing scripts.
@@ -515,7 +541,18 @@ npm test
 #   ✅ help.js's MCP tool count is asserted equal to harness-mcp.js's real TOOLS array
 # 🩹 new-change Defensive Fix
 #   ✅ initializes activeSpecs when missing from .harnessrc instead of crashing
-# Results: 88 passed, 0 failed
+# Results: 118 passed, 0 failed
+```
+
+The suite includes strict SDD→BDD→TDD traceability, adversarial-evidence gates, hard context
+budgets, Memory Steward single-writer behavior, task-claim collisions, semantic-index manifest
+compatibility, incremental vector reuse, Spanish retrieval after provisioning, and deterministic
+BM25+graph fallback. Before publishing a release, also run:
+
+```bash
+npm run test:smoke
+npm audit --audit-level=moderate
+openspec validate superoptimize-quality-memory-agent-workflows --strict
 ```
 
 ## 📄 License

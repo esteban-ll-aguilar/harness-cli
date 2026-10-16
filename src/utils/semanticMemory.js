@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { listFiles } = require('./fileUtils.js');
 const { fingerprint } = require('./retrieval.js');
@@ -20,6 +21,21 @@ function cosineSimilarity(a, b) {
 
 function buildSemanticManifest({ model = DEFAULT_MODEL, dimensions = 384, fingerprint: corpusFingerprint = '' } = {}) {
     return { version: INDEX_VERSION, provider: 'transformers.js-local', model, dimensions, fingerprint: corpusFingerprint, builtAt: new Date().toISOString() };
+}
+
+function documentFingerprint(document) {
+    return crypto.createHash('sha256').update(document.text).digest('hex');
+}
+
+function isCompatibleSemanticIndex(index, { model } = {}) {
+    if (!index || index.version !== INDEX_VERSION || index.provider !== 'transformers.js-local') return false;
+    if (model && index.model !== model) return false;
+    if (!Number.isInteger(index.dimensions) || index.dimensions <= 0 || !Array.isArray(index.documents)) return false;
+    return index.documents.every(document =>
+        typeof document.id === 'string' && typeof document.source === 'string' &&
+        typeof document.text === 'string' && typeof document.contentHash === 'string' &&
+        Array.isArray(document.vector) && document.vector.length === index.dimensions
+    );
 }
 
 function semanticDir(harnessDir) { return path.join(harnessDir, '.index', 'semantic'); }
@@ -93,10 +109,25 @@ function embedTexts(harnessDir, texts, { model = DEFAULT_MODEL, allowRemote = tr
 
 function buildSemanticIndex(harnessDir, options = {}) {
     const documents = chunksForVault(harnessDir);
-    const vectors = documents.length ? embedTexts(harnessDir, documents.map(d => d.text), options) : [];
-    const dimensions = vectors[0]?.length || 384;
-    const manifest = buildSemanticManifest({ model: options.model || DEFAULT_MODEL, dimensions, fingerprint: fingerprint(harnessDir) });
-    const index = { ...manifest, documents: documents.map((document, i) => ({ ...document, vector: vectors[i] })) };
+    const model = options.model || DEFAULT_MODEL;
+    const existing = loadSemanticIndex(harnessDir);
+    // A document is reusable only when its exact chunk content and the model
+    // contract match. This keeps rebuilds local and deterministic while never
+    // mixing vectors from incompatible models or dimensions.
+    const reusable = isCompatibleSemanticIndex(existing, { model })
+        ? new Map(existing.documents.map(document => [`${document.id}:${document.contentHash}`, document.vector]))
+        : new Map();
+    const decorated = documents.map(document => ({ ...document, contentHash: documentFingerprint(document) }));
+    const missing = decorated.filter(document => !reusable.has(`${document.id}:${document.contentHash}`));
+    const embedder = options.embedder || embedTexts;
+    const vectors = missing.length ? embedder(harnessDir, missing.map(d => d.text), options) : [];
+    if (vectors.length !== missing.length) throw new Error('Embedding provider returned an unexpected vector count');
+    const newVectors = new Map(missing.map((document, i) => [`${document.id}:${document.contentHash}`, vectors[i]]));
+    const allVectors = decorated.map(document => reusable.get(`${document.id}:${document.contentHash}`) || newVectors.get(`${document.id}:${document.contentHash}`));
+    const dimensions = allVectors[0]?.length || existing?.dimensions || 384;
+    if (!allVectors.every(vector => Array.isArray(vector) && vector.length === dimensions)) throw new Error('Embedding provider returned incompatible vector dimensions');
+    const manifest = buildSemanticManifest({ model, dimensions, fingerprint: fingerprint(harnessDir) });
+    const index = { ...manifest, documents: decorated.map((document, i) => ({ ...document, vector: allVectors[i] })) };
     fs.mkdirSync(semanticDir(harnessDir), { recursive: true });
     fs.writeFileSync(semanticIndexPath(harnessDir), JSON.stringify(index));
     return index;
@@ -109,7 +140,7 @@ function loadSemanticIndex(harnessDir) {
 function getSemanticIndex(harnessDir, { rebuildIfMissing = true, ...options } = {}) {
     const index = loadSemanticIndex(harnessDir);
     const currentFingerprint = fingerprint(harnessDir);
-    if (index && index.version === INDEX_VERSION && index.fingerprint === currentFingerprint) return index;
+    if (isCompatibleSemanticIndex(index, options) && index.fingerprint === currentFingerprint) return index;
     if (!index && !rebuildIfMissing) return null;
     return buildSemanticIndex(harnessDir, { model: index?.model || options.model || DEFAULT_MODEL, ...options });
 }
@@ -117,8 +148,9 @@ function getSemanticIndex(harnessDir, { rebuildIfMissing = true, ...options } = 
 function querySemanticIndex(harnessDir, query, options = {}) {
     const index = getSemanticIndex(harnessDir, options);
     if (!index) return [];
-    const [vector] = embedTexts(harnessDir, [query], { model: index.model, allowRemote: options.allowRemote === true });
+    const embedder = options.embedder || embedTexts;
+    const [vector] = embedder(harnessDir, [query], { model: index.model, allowRemote: options.allowRemote === true });
     return index.documents.map(d => ({ ...d, score: cosineSimilarity(vector, d.vector) })).sort((a, b) => b.score - a.score).slice(0, options.topN || 5);
 }
 
-module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, semanticIndexPath, semanticModelDir, semanticLockPath, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };
+module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, semanticIndexPath, semanticModelDir, semanticLockPath, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };

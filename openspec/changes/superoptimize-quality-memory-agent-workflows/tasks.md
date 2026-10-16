@@ -55,7 +55,7 @@
       `--no-semantic-memory` escape hatch and clear degraded-mode diagnostics.
 - [x] 3.6.4 Fuse vector, BM25 and graph ranking in the bounded context controller; retrieval
       remains deterministic and excludes superseded knowledge.
-- [ ] 3.6.5 Tests: manifest compatibility, incremental rebuild, Spanish semantic retrieval,
+- [x] 3.6.5 Tests: manifest compatibility, incremental rebuild, Spanish semantic retrieval,
       offline operation after provisioning, and BM25+graph fallback.
 
 ## 4. Safe multi-agent handoffs
