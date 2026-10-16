@@ -215,6 +215,7 @@ async function initProject(cwd, args) {
                 requireTdd: true,
                 approvalGates: ['architect'],
                 traceabilityMode: 'warn',
+                requireAdversarialTests: true,
                 contextBudgetTokens: 1200
             }
         });

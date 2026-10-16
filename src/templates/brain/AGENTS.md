@@ -188,6 +188,12 @@ specialists: they may help a claimed task but never skip an approval gate.
 - **🔐 Security Reviewer:** threat-sensitive review before Guardian for auth, data, abuse and
   dependency risks.
 
+**Adversarial-test rule:** A test suite with only a happy path is incomplete. For every
+normative requirement, include and tag at least one hostile test as
+`@adversarial:REQ-…`: malformed/missing DTO fields, wrong type/size/encoding, unauthorized
+caller, duplicate/replay, boundary/concurrency or injected payload as applicable. State why a
+category is N/A rather than silently omitting it.
+
 ---
 
 ## 6. EARS Notation (Requirement Syntax)

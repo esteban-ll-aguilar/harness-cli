@@ -1,3 +1,13 @@
+---
+id: spec-{{id}}
+kind: specification
+created_at: {{date}}
+updated_at: {{date}}
+confidence: 0.9
+owner: architect
+retention: durable
+---
+
 # Spec {{id}}: {{name}}
 
 > **Status:** Draft → Review → Approved → Implemented → Verified → Done

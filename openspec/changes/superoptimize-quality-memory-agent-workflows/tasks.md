@@ -4,7 +4,7 @@
       budget pressure case in `tests/runner.js` fixtures; record current retrieval/gate behavior.
 - [x] 0.2 Define additive `.harnessrc.quality` defaults (`traceabilityMode: warn`,
       `contextBudgetTokens: 1200`) in `init.js` and read-time fallbacks in consumers.
-- [ ] 0.3 Extend the project templates with requirement IDs, `@covers` examples, provenance
+- [x] 0.3 Extend the project templates with requirement IDs, `@covers` examples, provenance
       frontmatter and an agent completion receipt template.
 - [ ] 0.4 Tests: legacy `.harnessrc` and templates remain usable without new fields.
 
@@ -14,7 +14,7 @@
       `@covers:` tags and test coverage comments without language-specific dependencies.
 - [x] 1.2 Add `harness trace <specId>` with a compact coverage matrix and machine-readable
       `--json` output.
-- [ ] 1.3 Add Tester and Coder lifecycle checks in `advance.js`, initially warning by default
+- [x] 1.3 Add Tester and Coder lifecycle checks in `advance.js`, initially warning by default
       and strict when `quality.traceabilityMode` is `strict`.
 - [ ] 1.4 Add expiring, reasoned traceability overrides and Guardian reporting; never treat an
       override as a pass.
@@ -26,7 +26,7 @@
 - [x] 2.1 Extract a `ContextBudget` allocator from `tokenOptimizer.js`, with tier caps,
       deterministic admission and no cross-tier overflow.
 - [ ] 2.2 Make `getAlwaysContext` section-aware and capped; emit locators for omitted material.
-- [ ] 2.3 Add a context receipt to `harness context` (`--budget=N`, `--receipt=json|text`) and
+- [x] 2.3 Add a context receipt to `harness context` (`--budget=N`, `--receipt=json|text`) and
       a `context-built` ledger event without storing prompt body.
 - [ ] 2.4 Ensure graph traversal respects validity, provenance confidence and budget before
       neighbor expansion; preserve BM25 fallback.
@@ -35,7 +35,7 @@
 
 ## 3. Provenance graph and memory operations
 
-- [ ] 3.1 Extend `graphIndex.js` to parse optional provenance frontmatter and produce typed,
+- [x] 3.1 Extend `graphIndex.js` to parse optional provenance frontmatter and produce typed,
       evidence-backed edges for `implements` and `verifies`.
 - [ ] 3.2 Add stable node/edge IDs and index-version migration; retain inference for legacy
       Markdown and invalid frontmatter warnings.
@@ -82,7 +82,7 @@
 
 ## 5. CI, rollout and decision point
 
-- [ ] 5.1 Add `harness quality report` to summarize gates, traceability, eval metrics,
+- [x] 5.1 Add `harness quality report` to summarize gates, traceability, eval metrics,
       overrides and memory health in CI-friendly text/JSON.
 - [ ] 5.2 Document migration, warning→strict rollout, privacy/retention behavior, and agent
       operating protocol in README and AGENTS templates.

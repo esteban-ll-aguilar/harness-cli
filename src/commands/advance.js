@@ -4,6 +4,8 @@ const readline = require('readline');
 const { getHarnessDir, loadHarnessRC, writeHarnessRC, timestamp, listFiles } = require('../utils/fileUtils.js');
 const { detectAmbiguities } = require('../utils/ambiguityDetector.js');
 const { buildTraceabilityReport } = require('../utils/traceability.js');
+const { runTests } = require('../utils/testRunner.js');
+const { getLanguageConfig } = require('../utils/languageDetector.js');
 
 /**
  * `harness advance <specId>` — walk a spec through the 6-agent lifecycle.
@@ -108,7 +110,10 @@ function step(cwd, harnessDir, rc, spec, delta, opts = {}) {
 
         if (checkApprovalGate(rc, spec, next)) return;
         if (next === 'tester' && agents.architect === 'done' && checkClarifyGate(cwd, harnessDir, spec, opts)) return;
-        if ((next === 'tester' || next === 'coder') && checkTraceabilityGate(harnessDir, rc, spec)) return;
+        // Entering Tester creates evidence. Leaving Tester (entering Coder)
+        // proves SDD→BDD→TDD mapping. Leaving Coder proves it actually runs.
+        if (next === 'coder' && checkTraceabilityGate(harnessDir, rc, spec)) return;
+        if (next === 'reviewer' && checkMappedTestsGate(cwd, harnessDir, rc, spec)) return;
 
         agents[next] = 'done';
         spec.status = STAGE_STATUS[next];
@@ -143,13 +148,32 @@ function checkTraceabilityGate(harnessDir, rc, spec) {
     const report = buildTraceabilityReport(specDir);
     const mode = rc.quality?.traceabilityMode || 'warn';
     const legacy = report.total === 0;
-    if (!legacy && report.gaps.length === 0) return false;
-    const reason = legacy ? 'no REQ-* normative requirements found' : `${report.gaps.length} requirement(s) lack BDD/TDD evidence`;
+    const requireAdversarial = rc.quality?.requireAdversarialTests !== false;
+    const incomplete = report.gaps.length > 0 || (requireAdversarial && report.adversarialGaps.length > 0);
+    if (!legacy && !incomplete) return false;
+    const reason = legacy ? 'no REQ-* normative requirements found'
+        : `${report.gaps.length} requirement(s) lack BDD/TDD evidence; ${requireAdversarial ? `${report.adversarialGaps.length} lack adversarial coverage` : 'adversarial coverage disabled'}`;
     if (mode === 'strict') {
         console.log(`\n🛑 Traceability gate: ${reason}. Run: harness quality trace ${spec.id}\n`);
         return true;
     }
     console.log(`\n⚠️  Traceability warning: ${reason}. Set quality.traceabilityMode=strict to block this transition.\n`);
+    return false;
+}
+
+function checkMappedTestsGate(cwd, harnessDir, rc, spec) {
+    const specDir = findSpecDir(harnessDir, spec.id);
+    if (!specDir) return false;
+    const config = getLanguageConfig(spec.language || rc.language?.detected || 'typescript');
+    const result = runTests(cwd, specDir, config);
+    if (result.runnable && result.ok) return false;
+    const mode = rc.quality?.traceabilityMode || 'warn';
+    const reason = result.runnable ? `${result.failed || 'one or more'} test(s) failed` : `tests are not runnable (${result.reason || 'runner unavailable'})`;
+    if (mode === 'strict') {
+        console.log(`\n🛑 Coder verification gate: ${reason}. The implementation cannot enter review.\n`);
+        return true;
+    }
+    console.log(`\n⚠️  Coder verification warning: ${reason}. Set quality.traceabilityMode=strict to block this transition.\n`);
     return false;
 }
 
@@ -404,4 +428,4 @@ function printState(spec) {
     }
 }
 
-module.exports = { advance, STAGES, countBddScenarios };
+module.exports = { advance, STAGES, countBddScenarios, checkTraceabilityGate, checkMappedTestsGate };

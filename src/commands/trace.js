@@ -19,7 +19,7 @@ function trace(cwd, args) {
     if (args.includes('--json')) { console.log(JSON.stringify(report, null, 2)); return report; }
     console.log(`\n🔗 TRACEABILITY — ${path.basename(specDir)}\n`);
     for (const id of report.requirements) console.log(`  ${report.coverage[id].status === 'covered' ? '✅' : '⚠️ '} ${id}: ${report.coverage[id].status}`);
-    console.log(`\n  Covered: ${report.covered}/${report.total}${report.gaps.length ? ` · gaps: ${report.gaps.length}` : ''}\n`);
+    console.log(`\n  Covered: ${report.covered}/${report.total}${report.gaps.length ? ` · gaps: ${report.gaps.length}` : ''}${report.adversarialGaps.length ? ` · adversarial gaps: ${report.adversarialGaps.length}` : ''}\n`);
     return report;
 }
 

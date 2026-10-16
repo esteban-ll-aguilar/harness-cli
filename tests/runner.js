@@ -86,9 +86,20 @@ test('traceability links a requirement to BDD and TDD evidence', () => {
     fs.mkdirSync(path.join(specDir, 'tests'));
     fs.writeFileSync(path.join(specDir, 'spec.md'), '### REQ-001: Sign in\nThe system SHALL sign in a valid user.\n');
     fs.writeFileSync(path.join(specDir, 'features', 'auth.feature'), '@covers:REQ-001\nScenario: valid sign in\n  When a user signs in\n  Then access is granted\n');
-    fs.writeFileSync(path.join(specDir, 'tests', 'auth.test.js'), '// @covers:REQ-001\ntest("sign in", () => {})\n');
+    fs.writeFileSync(path.join(specDir, 'tests', 'auth.test.js'), '// @covers:REQ-001 @adversarial:REQ-001\ntest("sign in", () => {})\n');
     const report = buildTraceabilityReport(specDir);
     assertEqual(report.coverage['REQ-001'].status, 'covered', 'Requirement should be fully traceable');
+    assertEqual(report.adversarialGaps.length, 0, 'A strict requirement needs hostile-case evidence too');
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('traceability exposes happy-path-only tests as an adversarial gap', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    fs.mkdirSync(path.join(tmpDir, 'features'), { recursive: true }); fs.mkdirSync(path.join(tmpDir, 'tests'));
+    fs.writeFileSync(path.join(tmpDir, 'spec.md'), '### REQ-DTO: Create\nThe system SHALL reject malformed DTOs.\n');
+    fs.writeFileSync(path.join(tmpDir, 'features', 'a.feature'), '@covers:REQ-DTO\nScenario: valid\n');
+    fs.writeFileSync(path.join(tmpDir, 'tests', 'a.test.js'), '// @covers:REQ-DTO\ntest("valid only", () => {})');
+    assertEqual(buildTraceabilityReport(tmpDir).adversarialGaps[0].requirementId, 'REQ-DTO');
     fs.rmSync(tmpDir, { recursive: true });
 });
 

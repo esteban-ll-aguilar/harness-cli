@@ -33,7 +33,7 @@ const { tokenize, stripDiacritics, fingerprint } = require('./retrieval.js');
  * not millions, of notes) this CLI targets.
  */
 
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 
 // Confidence: how durable a fact is once written. Decisions/charters rarely
 // change; session logs are a snapshot of one moment and decay fast.
@@ -146,7 +146,7 @@ function buildGraph(harnessDir) {
             const { meta, body } = parseFrontmatter(content);
             const type = classifyType(rel);
             const validFrom = parseDate(meta, mtimeMs);
-            const confidence = TYPE_CONFIDENCE[type] ?? 0.7;
+            const confidence = Number(meta.confidence) || TYPE_CONFIDENCE[type] || 0.7;
 
             const sections = splitSections(body);
             byFile[rel] = [];
@@ -168,6 +168,13 @@ function buildGraph(harnessDir) {
                 if (meta.supersedes) {
                     const target = meta.supersedes.trim();
                     edges.push({ from: id, to: target, type: 'supersedes', weight: 1.0 });
+                }
+
+                // Additive frontmatter keeps legacy Markdown valid. These edges
+                // retain source evidence so graph diagnostics can explain them.
+                for (const relation of ['implements', 'verifies']) {
+                    const targets = String(meta[relation] || '').split(',').map(v => v.trim()).filter(Boolean);
+                    for (const target of targets) edges.push({ from: id, to: target, type: relation, weight: 1, evidence: rel });
                 }
 
                 for (const link of extractWikilinks(section.text)) {
@@ -241,6 +248,7 @@ function buildGraph(harnessDir) {
     const numNodes = nodeList.length;
     const avgLen = numNodes ? nodeList.reduce((a, n) => a + n.len, 0) / numNodes : 0;
 
+    edges.forEach((edge, index) => { edge.id = edge.id || `${edge.type}:${edge.from}->${edge.to}:${index}`; });
     return {
         version: INDEX_VERSION,
         fingerprint: fingerprint(harnessDir),

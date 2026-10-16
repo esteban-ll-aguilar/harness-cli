@@ -126,6 +126,11 @@ Agents: ${Object.keys(rc.agents || {}).join(', ') || 'default 6'}`);
         rawTokens,
         omitted: wasTrimmed ? [{ reason: 'total-budget', estimatedTokens: rawTokens - bundleTokens }] : []
     };
+    // Store operational metadata only; never persist the prompt, query or
+    // retrieved content in the ledger (they can contain sensitive project data).
+    const ledgerDir = path.join(harnessDir, 'memory', 'session-logs');
+    fs.mkdirSync(ledgerDir, { recursive: true });
+    fs.appendFileSync(path.join(ledgerDir, `context-built-${Date.now()}.md`), `---\nevent: context-built\ndate: ${new Date().toISOString()}\nbudgetTokens: ${budget}\ntokensUsed: ${bundleTokens}\nomittedCount: ${receipt.omitted.length}\n---\n`);
 
     if (opts.file) {
         fs.writeFileSync(opts.file, bundle);
@@ -140,7 +145,7 @@ Agents: ${Object.keys(rc.agents || {}).join(', ') || 'default 6'}`);
     console.log(bundle);
     console.log('─'.repeat(60));
     if (opts.receipt === 'json') console.log(JSON.stringify(receipt, null, 2));
-    else if (wasTrimmed) console.log(`⚠️  Context receipt: ${receipt.omitted[0].estimatedTokens} token(s) omitted to honor the ${budget}-token budget.`);
+    else if (opts.receipt === 'text' || wasTrimmed) console.log(`⚠️  Context receipt: ${receipt.omitted.length ? receipt.omitted[0].estimatedTokens : 0} token(s) omitted to honor the ${budget}-token budget.`);
     console.log('💡 Tip: harness context --query="auth" adds retrieval, --file=ctx.md writes to disk.');
 }
 
