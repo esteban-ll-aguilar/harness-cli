@@ -119,6 +119,32 @@ Do not enable scripts globally unless that is an explicit policy decision for yo
 Without native inference, the harness remains usable and reports semantic memory as degraded;
 BM25 plus the provenance graph continue to provide deterministic retrieval.
 
+## Release gates and local supply-chain evidence
+
+Configure project gates in `.harnessrc.quality.gates` (`lint`, `typecheck`, `build`, `coverage`,
+or `security`). A gate has a command and `required: true|false`; Guardian blocks on any required
+failure and records optional failures as visible warnings. No command is guessed for legacy projects.
+
+```bash
+# One reproducible local release check: tests, npm audit, tarball, SBOM and SHA-512 evidence
+npm run release:check
+
+# Same check from an initialized project; evidence remains local and content-free
+harness quality release
+harness quality report --snapshot
+harness quality trend
+```
+
+Evidence is written to `.harness/reports/release/` (`sbom.json`, `integrity.json`,
+`release-report.json`) and quality snapshots remain under `.harness/reports/quality/`. These
+derived reports never store prompt or vault contents. Keep the generated artifact checksum with
+your release; signing and publishing remain deliberate owner actions.
+
+When moving a project to another machine, commit `.harness/brain/`, `.harness/specs/`,
+`.harness/memory/` and `.harness/.archive/`: those are the durable project memory and audit trail.
+Do not commit `.harness/.models/` or `.harness/.index/`; run `harness init --repair` once on the
+new machine and Harness provisions the local model and rebuilds derived indexes automatically.
+
 `harness init` downloads the pinned embedding model once and stores it locally under
 `.harness/.models/embeddings/`. Every AI tool uses the same semantic index through
 `harness context`; no API key, Docker daemon, cloud vector database, Ollama, or per-agent

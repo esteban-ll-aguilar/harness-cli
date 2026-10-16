@@ -4,6 +4,7 @@ const { execSync } = require('child_process');
 const { getHarnessDir, loadHarnessRC, listFiles, timestamp } = require('../utils/fileUtils.js');
 const { runTests, findSpecDir } = require('../utils/testRunner.js');
 const { getLanguageConfig } = require('../utils/languageDetector.js');
+const { runQualityGates } = require('../utils/qualityGates.js');
 
 function review(cwd, args) {
     const specId = args[0];
@@ -128,6 +129,10 @@ function review(cwd, args) {
     // Check 6: Tests actually RUN and PASS (the real TDD gate)
     const runCheck = runTestsGate(cwd, harnessDir, rc, specId, { skipTests, cmd });
     checks.push(runCheck);
+
+    // Configured commands turn Guardian's lint/typecheck/build/coverage/security
+    // promises into auditable gates. Absent configuration stays backward compatible.
+    checks.push(...runQualityGates(cwd, rc.quality));
 
     // Check 7: ADRs for decisions
     const decisionsDir = path.join(harnessDir, 'brain', 'decisions');

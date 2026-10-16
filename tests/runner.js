@@ -74,6 +74,8 @@ const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
 const { validateCompletionReceipt } = require('../src/utils/completionReceipt.js');
 const { handoff } = require('../src/commands/handoff.js');
+const { runQualityGates } = require('../src/utils/qualityGates.js');
+const { snapshotQuality, qualityTrend } = require('../src/utils/qualitySnapshots.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -269,6 +271,24 @@ test('semantic memory rejects an incompatible manifest and deterministic context
     assertFalse(isCompatibleSemanticIndex(require('../src/utils/semanticMemory.js').loadSemanticIndex(h)), 'A mismatched manifest must not be trusted');
     const fallback = getOnDemandContext(h, 'credenciales acceso', { budgetTokens: 80 });
     assertTrue(fallback.includes('credenciales'), 'Graph/BM25 retrieval must still serve context when semantic inference is unavailable');
+    fs.rmSync(tmp, { recursive: true });
+});
+
+test('configured Guardian gates make required failures block while optional failures warn', () => {
+    const checks = runQualityGates(process.cwd(), { gates: {
+        lint: { command: `${process.execPath} -e "process.exit(0)"`, required: true },
+        coverage: { command: `${process.execPath} -e "process.exit(1)"`, required: false },
+        build: { command: `${process.execPath} -e "process.exit(1)"`, required: true }
+    } });
+    assertEqual(checks.find(c => c.gate === 'lint').status, 'PASS');
+    assertEqual(checks.find(c => c.gate === 'coverage').status, 'WARN');
+    assertEqual(checks.find(c => c.gate === 'build').status, 'FAIL');
+});
+
+test('quality snapshots retain bounded metadata and report deltas', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-quality-test-'); const report = { traceabilityMode: 'strict', specs: [{ spec: '001-a', total: 2, covered: 1, adversarialGaps: [] }], memoryHealth: { status: 'pass', danglingEdges: [] }, overrides: [] };
+    snapshotQuality(tmp, report, { limit: 2 }); report.specs[0].covered = 2; report.memoryHealth.danglingEdges.push({}); report.overrides.push({}); snapshotQuality(tmp, report, { limit: 2 });
+    const trend = qualityTrend(tmp); assertEqual(trend.snapshots, 2); assertEqual(trend.delta.coveredRequirements, 1); assertEqual(trend.delta.danglingEdges, 1); assertEqual(trend.delta.overrides, 1);
     fs.rmSync(tmp, { recursive: true });
 });
 

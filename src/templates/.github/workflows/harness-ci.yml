@@ -40,28 +40,5 @@ jobs:
           fi
           echo "✅ All specs validated"
 
-      - name: Harness CLI smoke test
-        run: |
-          node bin/harness.js --version
-          node bin/harness.js help
-          node bin/harness-mcp.js </dev/null || test $? -eq 0
-
-      - name: Run Project Tests (from .harnessrc)
-        run: |
-          RUNNER=$(node -e "try { const rc=require('./.harnessrc'); process.stdout.write(rc.language?.runner || ''); } catch(e) { process.stdout.write(''); }")
-          if [ -n "$RUNNER" ] && [ "$RUNNER" != "npm test" ]; then
-            echo "Running: $RUNNER"
-            eval "$RUNNER"
-          elif [ -f "package.json" ]; then
-            echo "Detected package.json — running npm test"
-            npm test
-          else
-            echo "No test runner detected in .harnessrc — skipping (configure rc.language.runner)"
-          fi
-        continue-on-error: false
-
-      - name: Security Audit
-        run: npm audit --audit-level=moderate
-
-      - name: Package is publishable
-        run: npm pack --dry-run
+      - name: Unified release gate
+        run: npm run release:check

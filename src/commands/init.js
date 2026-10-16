@@ -53,6 +53,21 @@ async function initProject(cwd, args) {
         repairAgentLayout(cwd, harnessDir);
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
+        // A checkout on a new machine keeps the canonical Markdown memory but
+        // not the derived model/index. Repair provisions only what is missing;
+        // it never reinitializes or overwrites the project vault.
+        if (semanticMemory) {
+            try {
+                const { getSemanticIndex, buildSemanticIndex } = require('../utils/semanticMemory.js');
+                if (!getSemanticIndex(harnessDir, { rebuildIfMissing: false })) {
+                    const index = buildSemanticIndex(harnessDir);
+                    console.log(`🧠 Semantic memory provisioned during repair: ${index.documents.length} chunks`);
+                }
+            } catch (e) {
+                console.log(`⚠️  Semantic memory still unavailable: ${e.message}`);
+                console.log('   BM25 + graph retrieval remain active; retry: harness memory semantic setup');
+            }
+        }
         console.log('✅ Harness layout repaired: root AGENTS.md and .agents/ projection are current.');
         return;
     }
@@ -213,6 +228,12 @@ async function initProject(cwd, args) {
                 requireSpec: true,
                 requireBdd: true,
                 requireTdd: true,
+                // Commands are intentionally opt-in: templates document safe defaults,
+                // while legacy projects are never blocked by guessed tooling.
+                gates: {
+                    lint: { command: langConfig.lint, required: false },
+                    coverage: { command: langConfig.coverage, required: false }
+                },
                 approvalGates: ['architect'],
                 traceabilityMode: 'warn',
                 requireAdversarialTests: true,

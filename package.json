@@ -11,6 +11,7 @@
     "test": "node tests/runner.js",
     "test:unit": "node tests/runner.js",
     "test:smoke": "node bin/harness.js --version && node bin/harness.js help && npm pack --dry-run",
+    "release:check": "node src/release-check.js",
     "prepublishOnly": "node tests/runner.js"
   },
   "keywords": [
