@@ -74,6 +74,7 @@ const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
 const { validateCompletionReceipt } = require('../src/utils/completionReceipt.js');
 const { handoff } = require('../src/commands/handoff.js');
+const { ensureHarnessGitignore } = require('../src/commands/init.js');
 const { runQualityGates } = require('../src/utils/qualityGates.js');
 const { snapshotQuality, qualityTrend } = require('../src/utils/qualitySnapshots.js');
 
@@ -289,6 +290,16 @@ test('quality snapshots retain bounded metadata and report deltas', () => {
     const tmp = fs.mkdtempSync('/tmp/harness-quality-test-'); const report = { traceabilityMode: 'strict', specs: [{ spec: '001-a', total: 2, covered: 1, adversarialGaps: [] }], memoryHealth: { status: 'pass', danglingEdges: [] }, overrides: [] };
     snapshotQuality(tmp, report, { limit: 2 }); report.specs[0].covered = 2; report.memoryHealth.danglingEdges.push({}); report.overrides.push({}); snapshotQuality(tmp, report, { limit: 2 });
     const trend = qualityTrend(tmp); assertEqual(trend.snapshots, 2); assertEqual(trend.delta.coveredRequirements, 1); assertEqual(trend.delta.danglingEdges, 1); assertEqual(trend.delta.overrides, 1);
+    fs.rmSync(tmp, { recursive: true });
+});
+
+test('init seeds only derived ignores and preserves repo-backed memory rules', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-gitignore-test-');
+    fs.writeFileSync(path.join(tmp, '.gitignore'), 'custom-rule\n');
+    ensureHarnessGitignore(tmp);
+    const content = fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8');
+    assertTrue(content.includes('.harness/.index/')); assertTrue(content.includes('.harness/.models/')); assertTrue(content.includes('.harness/reports/'));
+    assertFalse(content.includes('.harness/memory/session-logs/')); assertFalse(content.includes('.harness/.archive/')); assertTrue(content.includes('custom-rule'));
     fs.rmSync(tmp, { recursive: true });
 });
 

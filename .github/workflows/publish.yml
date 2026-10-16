@@ -1,6 +1,6 @@
 name: Publish
 
-# Auto-publishes a new patch version to npm on every merge to main.
+# Automatically bumps and stages a new patch version on every merge to main.
 # Uses npm Trusted Publishing (OIDC) — NO npm token stored as a secret.
 #
 # One-time setup on npmjs.com (package page → Settings → Trusted Publishers):
@@ -13,9 +13,6 @@ name: Publish
 #   Publishing access:     "Require two-factor authentication and disallow
 #                          bypass 2fa tokens" (recommended)
 #
-# The version-bump commit includes "[skip-ci]" so this workflow does not
-# re-trigger itself in a loop.
-
 on:
   push:
     branches: [main]
@@ -58,8 +55,10 @@ jobs:
         run: |
           npm version patch -m "chore(release): v%s [skip-ci]"
 
-      - name: Publish to npm (Trusted Publishing, no token)
-        run: npm publish --provenance --access public --loglevel=verbose
+      - name: Stage package to npm (Trusted Publishing, manual approval required)
+        # The npm Trusted Publisher is configured without direct npm publish.
+        # A maintainer reviews and approves the staged package with 2FA.
+        run: npm stage publish --access public --loglevel=verbose
 
       - name: Push version bump and tag
         run: git push --follow-tags

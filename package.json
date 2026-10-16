@@ -1,6 +1,6 @@
 {
   "name": "@esteban-ll-aguilar/harness-cli",
-  "version": "1.3.2",
+  "version": "1.3.0",
   "description": "Production-grade multi-agent harness for SDD-BDD-TDD software development. RAG memory (BM25), Obsidian vault, MCP server, agent auto-generation. Compatible with Claude, Codex, OpenCode, Kimi, Qwen, DeepSeek, and any AI tool.",
   "main": "src/cli.js",
   "bin": {
