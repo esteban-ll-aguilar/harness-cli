@@ -1,12 +1,12 @@
 ## 0. Baseline and contracts
 
-- [ ] 0.1 Add baseline fixtures for a legacy spec, complete traceable spec, stale decision and
+- [x] 0.1 Add baseline fixtures for a legacy spec, complete traceable spec, stale decision and
       budget pressure case in `tests/runner.js` fixtures; record current retrieval/gate behavior.
 - [x] 0.2 Define additive `.harnessrc.quality` defaults (`traceabilityMode: warn`,
       `contextBudgetTokens: 1200`) in `init.js` and read-time fallbacks in consumers.
 - [x] 0.3 Extend the project templates with requirement IDs, `@covers` examples, provenance
       frontmatter and an agent completion receipt template.
-- [ ] 0.4 Tests: legacy `.harnessrc` and templates remain usable without new fields.
+- [x] 0.4 Tests: legacy `.harnessrc` and templates remain usable without new fields.
 
 ## 1. Make SDD → BDD → TDD mechanically traceable
 
@@ -18,19 +18,19 @@
       and strict when `quality.traceabilityMode` is `strict`.
 - [x] 1.4 Add expiring, reasoned traceability overrides and Guardian reporting; never treat an
       override as a pass.
-- [ ] 1.5 Tests: happy path, missing scenario, missing test, test failure, valid override,
+- [x] 1.5 Tests: happy path, missing scenario, missing test, test failure, valid override,
       expired override and backward compatibility.
 
 ## 2. Budgeted context controller
 
 - [x] 2.1 Extract a `ContextBudget` allocator from `tokenOptimizer.js`, with tier caps,
       deterministic admission and no cross-tier overflow.
-- [ ] 2.2 Make `getAlwaysContext` section-aware and capped; emit locators for omitted material.
+- [x] 2.2 Make `getAlwaysContext` section-aware and capped; emit locators for omitted material.
 - [x] 2.3 Add a context receipt to `harness context` (`--budget=N`, `--receipt=json|text`) and
       a `context-built` ledger event without storing prompt body.
 - [x] 2.4 Ensure graph traversal respects validity, provenance confidence and budget before
       neighbor expansion; preserve BM25 fallback.
-- [ ] 2.5 Tests: total budget compliance, priority ordering, stale-node exclusion, fallback,
+- [x] 2.5 Tests: total budget compliance, priority ordering, stale-node exclusion, fallback,
       deterministic result ordering and receipt correctness.
 
 ## 3. Provenance graph and memory operations
@@ -42,7 +42,7 @@
 - [x] 3.3 Add `harness memory health` as a read-only health report.
 - [x] 3.4 Add `harness memory eval` with versioned deterministic fixture corpus and metrics:
       recall@k, stale-hit rate, budget compliance, dangling-edge count and traceability coverage.
-- [ ] 3.5 Tests: typed edge construction, stale/superseded edge behavior, health findings and
+- [x] 3.5 Tests: typed edge construction, stale/superseded edge behavior, health findings and
       fixed evaluation metric outputs.
 
 ## 3.6 Local semantic long-term memory
@@ -66,7 +66,7 @@
       existing spec-level claim behavior.
 - [x] 4.3 Add completion receipt validation: touched files, tests run, traceability delta,
       unresolved risks and memory observations are structured rather than free-form only.
-- [ ] 4.4 Tests: handoff omits unrelated memory, respects budget, detects task claim conflicts
+- [x] 4.4 Tests: handoff omits unrelated memory, respects budget, detects task claim conflicts
       and validates an incomplete receipt as non-complete.
 
 ## 4.5. Memory Steward and generated-project compatibility
@@ -77,7 +77,7 @@
       `.agents/` compatibility projection without duplicating canonical memory.
 - [x] 4.5.3 Consolidate the documented command/MCP surface into `init`, `work`, `memory`,
       `quality`, `context` and `status`; retain hidden compatibility aliases with tests.
-- [ ] 4.5.4 Tests: only the steward promotes durable memory, duplicate observations are safe,
+- [x] 4.5.4 Tests: only the steward promotes durable memory, duplicate observations are safe,
       repair is non-destructive, and compatibility aliases route correctly.
 
 ## 5. CI, rollout and decision point

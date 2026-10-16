@@ -51,7 +51,7 @@ const { parseOutput, specHasOwnConfig } = require('../src/utils/testRunner.js');
 const { applyPreset, rulesForFile } = require('../src/commands/rules.js');
 const { extractTaskPaths, specDriftCheck } = require('../src/commands/review.js');
 const { execSync } = require('child_process');
-const { advance } = require('../src/commands/advance.js');
+const { advance, checkTraceabilityGate } = require('../src/commands/advance.js');
 const { approve } = require('../src/commands/approve.js');
 const { orchestrate } = require('../src/commands/orchestrate.js');
 const { compactSessionLogs } = require('../src/commands/memory.js');
@@ -63,7 +63,7 @@ const { showHelp } = require('../src/utils/help.js');
 const { newChange } = require('../src/commands/new-change.js');
 const { judgeCheck } = require('../src/commands/review.js');
 const { buildGraph, queryGraph, splitSections, classifyType, recencyDecay } = require('../src/utils/graphIndex.js');
-const { getOnDemandContext } = require('../src/utils/tokenOptimizer.js');
+const { getOnDemandContext, getAlwaysContext } = require('../src/utils/tokenOptimizer.js');
 const { buildTraceabilityReport } = require('../src/utils/traceability.js');
 const { ContextBudget } = require('../src/utils/contextBudget.js');
 const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
@@ -72,6 +72,8 @@ const { memoryHealth } = require('../src/utils/memoryHealth.js');
 const { cosineSimilarity, buildSemanticManifest, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
 const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
+const { validateCompletionReceipt } = require('../src/utils/completionReceipt.js');
+const { handoff } = require('../src/commands/handoff.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -104,6 +106,38 @@ test('traceability exposes happy-path-only tests as an adversarial gap', () => {
     fs.rmSync(tmpDir, { recursive: true });
 });
 
+test('traceability distinguishes missing BDD and missing TDD evidence', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-'); fs.mkdirSync(path.join(tmp, 'features')); fs.mkdirSync(path.join(tmp, 'tests'));
+    fs.writeFileSync(path.join(tmp, 'spec.md'), '### REQ-A: A\nSystem SHALL A.\n### REQ-B: B\nSystem SHALL B.');
+    fs.writeFileSync(path.join(tmp, 'features', 'a.feature'), '@covers:REQ-A\nScenario: A');
+    fs.writeFileSync(path.join(tmp, 'tests', 'b.test.js'), '// @covers:REQ-B');
+    const gaps = buildTraceabilityReport(tmp).gaps.map(g => g.status).sort();
+    assertEqual(gaps.join(','), 'missing-scenario,missing-test'); fs.rmSync(tmp, { recursive: true });
+});
+
+test('legacy harness configuration and current templates remain readable', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-');
+    fs.writeFileSync(path.join(tmp, '.harnessrc'), JSON.stringify({ harnessDir: '.harness', projectName: 'legacy' }));
+    const legacy = loadHarnessRC(tmp);
+    assertEqual(legacy.projectName, 'legacy');
+    const specTemplate = fs.readFileSync(path.join(__dirname, '..', 'src', 'templates', 'specs', '_template', 'spec.md'), 'utf8');
+    const featureTemplate = fs.readFileSync(path.join(__dirname, '..', 'src', 'templates', 'specs', '_template', 'features', 'feature.feature'), 'utf8');
+    assertTrue(specTemplate.includes('REQ-001')); assertTrue(featureTemplate.includes('@covers:REQ-001'));
+    fs.rmSync(tmp, { recursive: true });
+});
+
+test('active traceability override remains debt while expired override blocks strict gate', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-'); const harness = path.join(tmp, '.harness'); const spec = path.join(harness, 'specs', '001-auth');
+    fs.mkdirSync(path.join(spec, 'features'), { recursive: true }); fs.mkdirSync(path.join(spec, 'tests'));
+    fs.writeFileSync(path.join(spec, 'spec.md'), '### REQ-001: Auth\nSystem SHALL authenticate.');
+    const base = { quality: { traceabilityMode: 'strict', requireAdversarialTests: true }, activeSpecs: [] };
+    const active = { ...base, quality: { ...base.quality, traceabilityOverrides: [{ specId: '001', requirementId: 'REQ-001', expiresAt: '2099-01-01' }] } };
+    assertFalse(checkTraceabilityGate(harness, active, { id: '001' }), 'Active override may proceed but must remain reported debt');
+    const expired = { ...base, quality: { ...base.quality, traceabilityOverrides: [{ specId: '001', requirementId: 'REQ-001', expiresAt: '2000-01-01' }] } };
+    assertTrue(checkTraceabilityGate(harness, expired, { id: '001' }), 'Expired override must block strict progression');
+    fs.rmSync(tmp, { recursive: true });
+});
+
 test('context budget never exceeds its configured capacity and returns omissions', () => {
     const budget = new ContextBudget(10, { working: 0.5, episodic: 0.2, semantic: 0.3 });
     budget.add('working', { id: 'required', text: '12345678901234567890', priority: 10 });
@@ -111,6 +145,17 @@ test('context budget never exceeds its configured capacity and returns omissions
     const receipt = budget.receipt();
     assertTrue(receipt.tokensUsed <= 10, 'Budget must be a hard ceiling');
     assertTrue(receipt.omitted.length > 0, 'Over-budget items must be visible');
+});
+
+test('always context keeps whole sections and locates omissions instead of mid-section truncation', () => {
+    const tmpDir = fs.mkdtempSync('/tmp/harness-test-');
+    const brain = path.join(tmpDir, 'brain'); fs.mkdirSync(brain);
+    fs.writeFileSync(path.join(brain, 'AGENTS.md'), '# First\nshort\n# Second\nthis section is deliberately much longer than a tiny budget');
+    fs.writeFileSync(path.join(brain, 'constitution.md'), ''); fs.writeFileSync(path.join(brain, 'north-star.md'), '');
+    const context = getAlwaysContext(tmpDir, { budgetTokens: 8 });
+    assertTrue(context.includes('First'), 'First fitting section should be retained');
+    assertFalse(context.includes('deliberately much'), 'Oversized later section should be omitted whole');
+    fs.rmSync(tmpDir, { recursive: true });
 });
 
 test('only Memory Steward promotes a unique observation and rejects duplicates', () => {
@@ -149,6 +194,38 @@ test('memory health reports dangling graph references without changing memory', 
     const health = memoryHealth(graph);
     assertEqual(health.danglingEdges.length, 1, 'Missing target must be reported');
     assertEqual(health.status, 'warn', 'Dangling evidence should warn, not mutate the graph');
+});
+
+test('graph creates evidence-backed implements and verifies edges from frontmatter', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-'); fs.mkdirSync(path.join(tmp, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'brain', 'note.md'), '---\nimplements: REQ-001\nverifies: REQ-002\n---\n## Evidence\nproof');
+    const graph = buildGraph(tmp); const types = graph.edges.map(e => e.type);
+    assertTrue(types.includes('implements')); assertTrue(types.includes('verifies'));
+    assertTrue(graph.edges.filter(e => ['implements', 'verifies'].includes(e.type)).every(e => e.id && e.evidence));
+    fs.rmSync(tmp, { recursive: true });
+});
+
+test('completion receipts reject placeholders and accept concrete evidence', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-'); const bad = path.join(tmp, 'bad.md'); const good = path.join(tmp, 'good.md');
+    fs.writeFileSync(bad, 'Touched files: [explicit paths]\nTests executed: [exact command and result]\nTraceability delta: [REQ IDs]\nAdversarial cases: [malformed DTO]\nUnresolved risks: [none or explicit risks]\nMemory observations submitted: [inbox paths]');
+    fs.writeFileSync(good, 'Touched files: src/a.js\nTests executed: npm test (110 passed)\nTraceability delta: REQ-001 covered\nAdversarial cases: malformed DTO rejected\nUnresolved risks: none\nMemory observations submitted: none');
+    assertFalse(validateCompletionReceipt(bad).valid); assertTrue(validateCompletionReceipt(good).valid); fs.rmSync(tmp, { recursive: true });
+});
+
+test('handoff is task-scoped, budgeted and excludes unrelated working memory', () => {
+    const tmp = fs.mkdtempSync('/tmp/harness-test-'); const h = path.join(tmp, '.harness'); const spec = path.join(h, 'specs', '001-auth');
+    fs.mkdirSync(path.join(spec, 'features'), { recursive: true }); fs.mkdirSync(path.join(spec, 'tests'));
+    fs.mkdirSync(path.join(h, 'brain'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.harnessrc'), JSON.stringify({ harnessDir: '.harness', activeSpecs: [{ id: '001', name: 'auth', status: 'implemented', taskClaims: { '2': { owner: 'agent-a' } } }], quality: {} }));
+    fs.writeFileSync(path.join(spec, 'spec.md'), '### REQ-001: Auth\nSystem SHALL authenticate.');
+    fs.writeFileSync(path.join(spec, 'features', 'auth.feature'), '@covers:REQ-001\nScenario: auth');
+    fs.writeFileSync(path.join(spec, 'tests', 'auth.test.js'), '// @covers:REQ-001 @adversarial:REQ-001');
+    fs.writeFileSync(path.join(h, 'brain', 'unrelated.md'), 'completely unrelated private payroll records');
+    const packet = handoff(tmp, ['001', '--task=2', '--budget=20']);
+    assertEqual(packet.task, '2'); assertEqual(packet.claim.owner, 'agent-a');
+    assertTrue(Math.ceil(packet.context.length / 4) <= 20, 'Handoff must respect context budget');
+    assertFalse(packet.context.includes('payroll'), 'Unrelated memory must not leak into handoff');
+    fs.rmSync(tmp, { recursive: true });
 });
 
 test('semantic memory manifest fingerprints the local embedding model and index contract', () => {
@@ -953,6 +1030,17 @@ test('orchestrate claim steals a stale claim and logs it', () => {
     const logs = fs.readdirSync(path.join(harnessDir, 'memory', 'session-logs')).filter(f => f.startsWith('claim-stolen-001-'));
     assertEqual(logs.length, 1, 'Stealing a stale claim should be logged');
 
+    fs.rmSync(tmpDir, { recursive: true });
+});
+
+test('orchestrate task claims prevent two agents from owning the same task', () => {
+    const { tmpDir } = setupOrchestrateFixture();
+    orchestrate(tmpDir, ['claim', '001', '--task=2', '--owner=agent-a']);
+    orchestrate(tmpDir, ['claim', '001', '--task=2', '--owner=agent-b']);
+    const rc = loadHarnessRC(tmpDir);
+    assertEqual(rc.activeSpecs[0].taskClaims['2'].owner, 'agent-a');
+    orchestrate(tmpDir, ['release', '001', '--task=2']);
+    assertFalse(Boolean(loadHarnessRC(tmpDir).activeSpecs[0].taskClaims['2']));
     fs.rmSync(tmpDir, { recursive: true });
 });
 

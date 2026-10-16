@@ -25,6 +25,7 @@ function buildSemanticManifest({ model = DEFAULT_MODEL, dimensions = 384, finger
 function semanticDir(harnessDir) { return path.join(harnessDir, '.index', 'semantic'); }
 function semanticIndexPath(harnessDir) { return path.join(semanticDir(harnessDir), 'index.json'); }
 function semanticModelDir(harnessDir) { return path.join(harnessDir, '.models', 'embeddings'); }
+function semanticLockPath(harnessDir) { return path.join(harnessDir, '.models', 'embeddings.lock'); }
 
 function chunksForVault(harnessDir) {
     const docs = [];
@@ -64,12 +65,30 @@ const fs = require('fs');
 function embedTexts(harnessDir, texts, { model = DEFAULT_MODEL, allowRemote = true } = {}) {
     const inputPath = path.join(os.tmpdir(), `harness-embed-${process.pid}-${Date.now()}.json`);
     fs.mkdirSync(semanticModelDir(harnessDir), { recursive: true });
+    let lockFd;
+    try {
+        // Provisioning ONNX is large. A simple project-local lock prevents two
+        // concurrent agent sessions from downloading/corrupting the same cache.
+        lockFd = fs.openSync(semanticLockPath(harnessDir), 'wx');
+        fs.writeFileSync(lockFd, String(process.pid));
+    } catch (e) {
+        if (e.code === 'EEXIST') {
+            let alive = false;
+            try { const pid = Number(fs.readFileSync(semanticLockPath(harnessDir), 'utf8')); process.kill(pid, 0); alive = true; } catch (_) {}
+            if (!alive) {
+                try { fs.unlinkSync(semanticLockPath(harnessDir)); lockFd = fs.openSync(semanticLockPath(harnessDir), 'wx'); fs.writeFileSync(lockFd, String(process.pid)); } catch (_) { throw new Error('Semantic model provisioning is already running; retry after it completes.'); }
+            } else throw new Error('Semantic model provisioning is already running; retry after it completes.');
+        } else throw e;
+    }
     fs.writeFileSync(inputPath, JSON.stringify({ texts, model, allowRemote, cacheDir: semanticModelDir(harnessDir) }));
     try {
         const result = spawnSync(process.execPath, ['-e', EMBED_SCRIPT, inputPath], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, timeout: 10 * 60 * 1000 });
         if (result.status !== 0) throw new Error(result.stderr || 'Embedding process failed');
         return JSON.parse(result.stdout).vectors;
-    } finally { try { fs.unlinkSync(inputPath); } catch (e) {} }
+    } finally {
+        try { fs.unlinkSync(inputPath); } catch (e) {}
+        try { if (lockFd !== undefined) fs.closeSync(lockFd); fs.unlinkSync(semanticLockPath(harnessDir)); } catch (e) {}
+    }
 }
 
 function buildSemanticIndex(harnessDir, options = {}) {
@@ -102,4 +121,4 @@ function querySemanticIndex(harnessDir, query, options = {}) {
     return index.documents.map(d => ({ ...d, score: cosineSimilarity(vector, d.vector) })).sort((a, b) => b.score - a.score).slice(0, options.topN || 5);
 }
 
-module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, semanticIndexPath, semanticModelDir, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };
+module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, semanticIndexPath, semanticModelDir, semanticLockPath, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };

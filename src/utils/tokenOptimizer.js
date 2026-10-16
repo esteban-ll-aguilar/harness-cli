@@ -59,10 +59,11 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
                 const used = new Set();
                 for (const hit of hits) {
                     if (used.has(hit.id)) continue;
-                    const cost = estimateTokens(hit.text);
+                    const text = `--- ${hit.source} (semantic ${hit.score.toFixed(3)}) ---\n${hit.text}`;
+                    const cost = estimateTokens(text);
                     if (cost > remaining) continue;
                     used.add(hit.id); remaining -= cost;
-                    selected.push(`--- ${hit.source} (semantic ${hit.score.toFixed(3)}) ---\n${hit.text}`);
+                    selected.push(text);
                 }
             }
         }
@@ -98,11 +99,20 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     const hits = search(index, harnessDir, query, 3);
     if (hits.length === 0) return '';
 
-    return hits.map(r => {
+    const fallback = [];
+    let fallbackRemaining = budgetTokens;
+    for (const r of hits) {
         let content = '';
         try { content = fs.readFileSync(path.join(harnessDir, r.rel), 'utf8'); } catch (e) {}
-        return `--- ${r.rel} ---\n${content}`;
-    }).join('\n\n');
+        const header = `--- ${r.rel} ---\n`;
+        const allowedChars = Math.max(0, (fallbackRemaining - estimateTokens(header)) * 4);
+        if (allowedChars <= 0) break;
+        const text = `${header}${content.slice(0, allowedChars)}`;
+        const cost = estimateTokens(text);
+        if (cost > fallbackRemaining) break;
+        fallback.push(text); fallbackRemaining -= cost;
+    }
+    return fallback.join('\n\n');
 }
 
 function getTriggerContext(harnessDir, changedFile) {
