@@ -84,7 +84,7 @@
 
 - [x] 5.1 Add `harness quality report` to summarize gates, traceability, eval metrics,
       overrides and memory health in CI-friendly text/JSON.
-- [ ] 5.2 Document migration, warning→strict rollout, privacy/retention behavior, and agent
+- [x] 5.2 Document migration, warning→strict rollout, privacy/retention behavior, and agent
       operating protocol in README and AGENTS templates.
 - [ ] 5.3 Run full tests, smoke tests for every new CLI/MCP route, OpenSpec validation and a
       measured before/after report from the fixture corpus.

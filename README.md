@@ -42,6 +42,9 @@ harness interview
 # Create a new feature
 harness new-change user-authentication
 
+# Mandatory work preflight: restores the workflow after normal conversation
+harness work start 001 --task=2
+
 # Check status
 harness status
 
@@ -87,6 +90,9 @@ harness memory compact --days=30
 # Local semantic long-term memory (provisioned automatically by harness init)
 harness memory semantic status
 harness memory semantic search "authentication credentials"
+
+# Evidence that CI can parse
+harness quality report --json
 ```
 
 `harness init` downloads the pinned embedding model once and stores it locally under
@@ -280,6 +286,22 @@ Each agent has:
 - **Input artifacts** from previous agent
 - **Output artifacts** for next agent
 - **Handoff protocol** for context transfer
+
+### Preventing workflow drift
+
+Conversation can stay natural; enforcement starts when work starts. `harness work start <spec>`
+prints the non-skippable implementation checklist and `harness agent run <role> <spec>` embeds it
+in the agent prompt. In strict traceability mode a requirement cannot leave Tester without its
+BDD scenario, TDD test and `@adversarial:REQ-…` evidence. Adversarial cases include malformed
+DTOs, missing/null/wrong-type fields, authorization, replay/duplicates, boundaries, injection and
+concurrency where applicable. A green happy path alone is explicitly insufficient.
+
+### Project learning without memory drift
+
+Agents do not edit durable knowledge while coding. They send source-backed observations to
+`memory/inbox/`; the Memory Steward validates and deduplicates them before promotion into
+versioned `brain/patterns/` or an ADR. That turns repeated use into better project-specific rules
+without allowing an agent to “learn” unverified claims or overwrite the team’s decisions.
 
 ## 🧠 Memory & Context
 
