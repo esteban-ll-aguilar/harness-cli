@@ -8,6 +8,19 @@ const { repairAgentLayout } = require('../utils/projectLayout.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
+const HARNESS_DERIVED_GITIGNORE = ['.harness/.index/', '.harness/.models/', '.harness/reports/'];
+
+function ensureHarnessGitignore(cwd) {
+    const gitignorePath = path.join(cwd, '.gitignore');
+    const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+    const present = new Set(existing.split('\n'));
+    const missing = HARNESS_DERIVED_GITIGNORE.filter(rule => !present.has(rule));
+    if (!missing.length) return;
+    const base = existing.replace(/\n+$/, '');
+    const addition = missing.length ? `# Harness derived indexes, local model and reports\n${missing.join('\n')}` : '';
+    fs.writeFileSync(gitignorePath, `${base}${base && addition ? '\n' : ''}${addition}${base || addition ? '\n' : ''}`);
+}
+
 function askQuestion(rl, question) {
     return new Promise(resolve => rl.question(question, resolve));
 }
@@ -50,6 +63,7 @@ async function initProject(cwd, args) {
     const semanticMemory = !args.includes('--no-semantic-memory');
 
     if (fs.existsSync(harnessDir) && repair && !force) {
+        ensureHarnessGitignore(cwd);
         repairAgentLayout(cwd, harnessDir);
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
@@ -257,13 +271,7 @@ node_modules/
 
         // Keep canonical Markdown memory versionable, while preventing large,
         // model-specific derived artifacts from creating Git conflicts.
-        const gitignorePath = path.join(cwd, '.gitignore');
-        const semanticIgnores = ['.harness/.index/', '.harness/.models/', '.harness/memory/session-logs/'];
-        const existingGitignore = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
-        const missingIgnores = semanticIgnores.filter(rule => !existingGitignore.split('\n').includes(rule));
-        if (missingIgnores.length) {
-            fs.writeFileSync(gitignorePath, `${existingGitignore}${existingGitignore && !existingGitignore.endsWith('\n') ? '\n' : ''}# Harness derived indexes and local embedding model\n${missingIgnores.join('\n')}\n`);
-        }
+        ensureHarnessGitignore(cwd);
 
         const rootObsidian = path.join(cwd, '.obsidian');
         if (!fs.existsSync(rootObsidian)) {
@@ -400,4 +408,4 @@ ${!semanticMemory ? `
     }
 }
 
-module.exports = { initProject };
+module.exports = { initProject, ensureHarnessGitignore };
