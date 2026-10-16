@@ -9,8 +9,8 @@ function showHelp() {
 ║                                                                      ║
 ║  PRIMARY WORKFLOW                                                     ║
 ║  harness init [--auto] [--repair]     Create or repair all entrypoints║
-║  harness work interview|new|advance|agent  Run the delivery lifecycle ║
-║  harness quality trace|gate|test|review|judge  Prove quality evidence║
+║  harness work start|interview|new|advance|handoff  Delivery lifecycle  ║
+║  harness quality trace|report|gate|test|review  Prove quality evidence║
 ║  harness memory search|semantic|graph|steward  Long-term memory      ║
 ║  harness context [--spec=][--query=]   Bounded context for an agent  ║
 ║  harness status                       Project health & progress      ║
@@ -21,7 +21,7 @@ function showHelp() {
 ║  from the primary workflow.                                         ║
 ║                                                                      ║
 ║  AI INTEGRATION                                                      ║
-║  harness-mcp                          MCP server (20 tools) for any  ║
+║  harness-mcp                          MCP server (8 tools) — composite ║
 ║                                       MCP-compatible agent           ║
 ║                                                                      ║
 ║  MONOREPO: init auto-detects all languages; --lang=<lang> per change ║

@@ -168,6 +168,16 @@ function review(cwd, args) {
         checks.push({ name: 'Project rules (none configured)', status: 'WARN' });
     }
 
+    // Check 11: traceability debt is never silently promoted to coverage.
+    const overrides = rc.quality?.traceabilityOverrides || [];
+    const expiredOverrides = overrides.filter(o => Date.parse(o.expiresAt) <= Date.now());
+    const activeOverrides = overrides.filter(o => Date.parse(o.expiresAt) > Date.now());
+    checks.push({
+        name: `Traceability overrides (${activeOverrides.length} active, ${expiredOverrides.length} expired)`,
+        status: expiredOverrides.length ? 'FAIL' : activeOverrides.length ? 'WARN' : 'PASS',
+        hint: activeOverrides.length ? 'Overrides are visible debt and do not count as requirement coverage.' : ''
+    });
+
     // Print results
     for (const check of checks) {
         const icon = check.status === 'PASS' ? '✅' : check.status === 'FAIL' ? '❌' : check.status === 'ERROR' ? '💥' : '⚠️';

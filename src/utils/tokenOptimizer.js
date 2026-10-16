@@ -29,14 +29,15 @@ function getAlwaysContext(harnessDir, { budgetTokens = 250 } = {}) {
         const fp = path.join(harnessDir, file);
         if (fs.existsSync(fp)) {
             const full = fs.readFileSync(fp, 'utf8');
-            const remaining = Math.max(0, budgetTokens - budget.used);
-            if (remaining === 0) {
-                budget.omitted.push({ id: file, source: file, reason: 'total-budget', estimatedTokens: estimateTokens(full) });
-                continue;
+            // Preserve complete, addressable sections rather than an arbitrary
+            // prefix. A locator makes omitted policy discoverable without
+            // silently cutting a rule mid-sentence.
+            const sections = full.split(/(?=^#{1,3}\s+)/m).filter(Boolean);
+            for (let i = 0; i < sections.length; i++) {
+                const text = sections[i].trim(); if (!text) continue;
+                const heading = /^#+\s+([^\n]+)/.exec(text)?.[1] || `section-${i + 1}`;
+                budget.add('working', { id: `${file}#${heading}`, source: `${file}#${heading}`, text, priority: sections.length - i });
             }
-            const maxChars = remaining * 4;
-            const text = full.length > maxChars ? `${full.slice(0, Math.max(0, maxChars - 80))}\n\n[Truncated — read ${file} for the complete source.]` : full;
-            budget.add('working', { id: file, source: file, text });
         }
     }
     return budget.included.map(item => `--- ${item.source} ---\n${item.text}`).join('\n\n');

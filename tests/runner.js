@@ -71,6 +71,7 @@ const { repairAgentLayout } = require('../src/utils/projectLayout.js');
 const { memoryHealth } = require('../src/utils/memoryHealth.js');
 const { cosineSimilarity, buildSemanticManifest, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
 const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
+const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
 
 console.log('\n🧪 Running Harness CLI Tests\n');
 
@@ -162,6 +163,12 @@ test('specialists and the Memory Steward are built-in roles, not optional prose'
     for (const name of ['memory-steward', 'backend-engineer', 'frontend-engineer', 'security-reviewer']) {
         assertTrue(Boolean(DEFAULT_AGENTS[name]?.instructions), `${name} must have executable instructions`);
     }
+});
+
+test('memory evaluation is deterministic and rejects stale knowledge', () => {
+    const report = runMemoryEvaluation();
+    assertTrue(report.pass, 'Fixture corpus must pass its retrieval thresholds');
+    assertEqual(report.staleHitRate, 0, 'Superseded knowledge must not be retrieved');
 });
 
 // ============================================================
@@ -1396,9 +1403,11 @@ test('harness context --symbol= reports cleanly when nothing matches', () => {
 // clarify tool-reduction pass, where help.js briefly still said "24 tools").
 // Nothing else would catch that drift, since help.js and harness-mcp.js are
 // two independent files with no shared source of truth for the count.
-test('help.js MCP tool count matches the actual TOOLS array in harness-mcp.js', () => {
+test('help.js MCP tool count matches the public MCP surface in harness-mcp.js', () => {
     const mcpSource = fs.readFileSync(path.join(__dirname, '..', 'bin', 'harness-mcp.js'), 'utf8');
-    const actualCount = (mcpSource.match(/\bname: 'harness_[a-zA-Z_]+'/g) || []).length;
+    const publicBlock = /const PUBLIC_TOOL_NAMES = new Set\(\[([\s\S]*?)\]\);/.exec(mcpSource);
+    assertTrue(!!publicBlock, 'MCP must declare its public composite surface');
+    const actualCount = (publicBlock[1].match(/'harness_[a-zA-Z_]+'/g) || []).length;
     assertTrue(actualCount > 0, 'Sanity check: should find at least one tool definition');
 
     const helpOutput = captureConsole(() => showHelp());

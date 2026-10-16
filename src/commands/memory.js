@@ -7,6 +7,7 @@ const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graph
 const { submitObservation, processInbox } = require('../utils/memorySteward.js');
 const { memoryHealth } = require('../utils/memoryHealth.js');
 const { buildSemanticIndex, getSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
+const { runMemoryEvaluation } = require('../utils/memoryEval.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -67,6 +68,9 @@ function memory(cwd, args) {
         case 'semantic':
             semanticCmd(harnessDir, args.slice(1));
             break;
+        case 'eval':
+            evalCmd(harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
@@ -88,6 +92,15 @@ function memory(cwd, args) {
                                     Manage local, repo-backed semantic retrieval
 `);
     }
+}
+
+function evalCmd(harnessDir, args) {
+    const report = runMemoryEvaluation();
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.writeFileSync(path.join(harnessDir, 'memory', 'session-logs', `memory-eval-${Date.now()}.json`), JSON.stringify(report, null, 2));
+    if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
+    else console.log(`🧪 Memory eval: ${report.pass ? 'PASS' : 'FAIL'} · recall@k ${report.recallAtK} · stale-hit ${report.staleHitRate} · traceability ${report.traceabilityCoverage}`);
+    return report;
 }
 
 function observeCmd(harnessDir, args) {

@@ -149,15 +149,20 @@ function checkTraceabilityGate(harnessDir, rc, spec) {
     const mode = rc.quality?.traceabilityMode || 'warn';
     const legacy = report.total === 0;
     const requireAdversarial = rc.quality?.requireAdversarialTests !== false;
-    const incomplete = report.gaps.length > 0 || (requireAdversarial && report.adversarialGaps.length > 0);
+    const overrides = (rc.quality?.traceabilityOverrides || []).filter(o => o.specId === spec.id);
+    const active = new Set(overrides.filter(o => Date.parse(o.expiresAt) > Date.now()).map(o => o.requirementId));
+    const expired = overrides.filter(o => Date.parse(o.expiresAt) <= Date.now());
+    const unresolved = report.gaps.filter(g => !active.has(g.requirementId));
+    const unresolvedAdversarial = report.adversarialGaps.filter(g => !active.has(g.requirementId));
+    const incomplete = unresolved.length > 0 || (requireAdversarial && unresolvedAdversarial.length > 0) || expired.length > 0;
     if (!legacy && !incomplete) return false;
     const reason = legacy ? 'no REQ-* normative requirements found'
-        : `${report.gaps.length} requirement(s) lack BDD/TDD evidence; ${requireAdversarial ? `${report.adversarialGaps.length} lack adversarial coverage` : 'adversarial coverage disabled'}`;
+        : `${unresolved.length} requirement(s) lack BDD/TDD evidence; ${requireAdversarial ? `${unresolvedAdversarial.length} lack adversarial coverage` : 'adversarial coverage disabled'}; ${expired.length} override(s) expired`;
     if (mode === 'strict') {
         console.log(`\n🛑 Traceability gate: ${reason}. Run: harness quality trace ${spec.id}\n`);
         return true;
     }
-    console.log(`\n⚠️  Traceability warning: ${reason}. Set quality.traceabilityMode=strict to block this transition.\n`);
+    console.log(`\n⚠️  Traceability warning: ${reason}. ${active.size ? `${active.size} active override(s) remain visible and do not count as coverage. ` : ''}Set quality.traceabilityMode=strict to block this transition.\n`);
     return false;
 }
 

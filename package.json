@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node tests/runner.js",
     "test:unit": "node tests/runner.js",
+    "test:smoke": "node bin/harness.js --version && node bin/harness.js help && npm pack --dry-run",
     "prepublishOnly": "node tests/runner.js"
   },
   "keywords": [

@@ -16,7 +16,7 @@
       `--json` output.
 - [x] 1.3 Add Tester and Coder lifecycle checks in `advance.js`, initially warning by default
       and strict when `quality.traceabilityMode` is `strict`.
-- [ ] 1.4 Add expiring, reasoned traceability overrides and Guardian reporting; never treat an
+- [x] 1.4 Add expiring, reasoned traceability overrides and Guardian reporting; never treat an
       override as a pass.
 - [ ] 1.5 Tests: happy path, missing scenario, missing test, test failure, valid override,
       expired override and backward compatibility.
@@ -28,7 +28,7 @@
 - [ ] 2.2 Make `getAlwaysContext` section-aware and capped; emit locators for omitted material.
 - [x] 2.3 Add a context receipt to `harness context` (`--budget=N`, `--receipt=json|text`) and
       a `context-built` ledger event without storing prompt body.
-- [ ] 2.4 Ensure graph traversal respects validity, provenance confidence and budget before
+- [x] 2.4 Ensure graph traversal respects validity, provenance confidence and budget before
       neighbor expansion; preserve BM25 fallback.
 - [ ] 2.5 Tests: total budget compliance, priority ordering, stale-node exclusion, fallback,
       deterministic result ordering and receipt correctness.
@@ -37,10 +37,10 @@
 
 - [x] 3.1 Extend `graphIndex.js` to parse optional provenance frontmatter and produce typed,
       evidence-backed edges for `implements` and `verifies`.
-- [ ] 3.2 Add stable node/edge IDs and index-version migration; retain inference for legacy
+- [x] 3.2 Add stable node/edge IDs and index-version migration; retain inference for legacy
       Markdown and invalid frontmatter warnings.
 - [x] 3.3 Add `harness memory health` as a read-only health report.
-- [ ] 3.4 Add `harness memory eval` with versioned deterministic fixture corpus and metrics:
+- [x] 3.4 Add `harness memory eval` with versioned deterministic fixture corpus and metrics:
       recall@k, stale-hit rate, budget compliance, dangling-edge count and traceability coverage.
 - [ ] 3.5 Tests: typed edge construction, stale/superseded edge behavior, health findings and
       fixed evaluation metric outputs.
@@ -60,11 +60,11 @@
 
 ## 4. Safe multi-agent handoffs
 
-- [ ] 4.1 Add `harness handoff <specId> [--task=<id>] [--budget=N]`, built solely from the
+- [x] 4.1 Add `harness handoff <specId> [--task=<id>] [--budget=N]`, built solely from the
       traceability report, claim state and budgeted context receipt.
-- [ ] 4.2 Extend claims with optional task ownership and collision detection while retaining
+- [x] 4.2 Extend claims with optional task ownership and collision detection while retaining
       existing spec-level claim behavior.
-- [ ] 4.3 Add completion receipt validation: touched files, tests run, traceability delta,
+- [x] 4.3 Add completion receipt validation: touched files, tests run, traceability delta,
       unresolved risks and memory observations are structured rather than free-form only.
 - [ ] 4.4 Tests: handoff omits unrelated memory, respects budget, detects task claim conflicts
       and validates an incomplete receipt as non-complete.
@@ -75,7 +75,7 @@
       deterministic promotion/rejection processing with provenance checks.
 - [x] 4.5.2 Update `harness init` to generate/repair the root `AGENTS.md` entry point and a
       `.agents/` compatibility projection without duplicating canonical memory.
-- [ ] 4.5.3 Consolidate the documented command/MCP surface into `init`, `work`, `memory`,
+- [x] 4.5.3 Consolidate the documented command/MCP surface into `init`, `work`, `memory`,
       `quality`, `context` and `status`; retain hidden compatibility aliases with tests.
 - [ ] 4.5.4 Tests: only the steward promotes durable memory, duplicate observations are safe,
       repair is non-destructive, and compatibility aliases route correctly.
@@ -86,9 +86,9 @@
       overrides and memory health in CI-friendly text/JSON.
 - [x] 5.2 Document migration, warning→strict rollout, privacy/retention behavior, and agent
       operating protocol in README and AGENTS templates.
-- [ ] 5.3 Run full tests, smoke tests for every new CLI/MCP route, OpenSpec validation and a
+- [x] 5.3 Run full tests, smoke tests for every new CLI/MCP route, OpenSpec validation and a
       measured before/after report from the fixture corpus.
-- [ ] 5.4 Write an ADR deciding whether the optional embeddings/community-summary adapter is
+- [x] 5.4 Write an ADR deciding whether the optional embeddings/community-summary adapter is
       justified by measured recall gains relative to cost/complexity; do not implement it unless
       the evidence clears agreed thresholds.
 
