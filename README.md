@@ -87,7 +87,7 @@ harness orchestrate claim 001
 harness memory symbol getUserByEmail
 harness memory compact --days=30
 
-# Local semantic long-term memory (provisioned automatically by harness init)
+# Local semantic long-term memory (model provisioned once at package install)
 harness memory semantic status
 harness memory semantic search "authentication credentials"
 
@@ -102,18 +102,22 @@ scripts prepare the native ONNX runtime used to create embeddings locally. Some 
 all install scripts by default and show an `npm warn install-scripts` warning. It is a security
 policy notice, not a harness error.
 
-If you trust this package and want local semantic memory, allow **only** those two scripts for
-this install:
+If you trust this package and want the model to be provisioned automatically, allow the native
+runtime scripts **and Harness's own postinstall** for this install:
 
 ```bash
 # Installing a locally built release artifact
 npm install -g ./esteban-ll-aguilar-harness-cli-1.3.2.tgz \
-  --allow-scripts=onnxruntime-node,protobufjs
+  --allow-scripts=onnxruntime-node,protobufjs,@esteban-ll-aguilar/harness-cli
 
 # Or installing the published package
 npm install -g @esteban-ll-aguilar/harness-cli \
-  --allow-scripts=onnxruntime-node,protobufjs
+  --allow-scripts=onnxruntime-node,protobufjs,@esteban-ll-aguilar/harness-cli
 ```
+
+Durante la primera instalación verás una línea de progreso con el archivo ONNX y su porcentaje
+(`Downloading semantic model: ... 42%`). La descarga ocurre una sola vez por máquina; las
+instalaciones posteriores reutilizan el caché global y terminan inmediatamente.
 
 Do not enable scripts globally unless that is an explicit policy decision for your machine.
 Without native inference, the harness remains usable and reports semantic memory as degraded;
@@ -142,14 +146,14 @@ your release; signing and publishing remain deliberate owner actions.
 
 When moving a project to another machine, commit `.harness/brain/`, `.harness/specs/`,
 `.harness/memory/` and `.harness/.archive/`: those are the durable project memory and audit trail.
-Do not commit `.harness/.models/` or `.harness/.index/`; run `harness init --repair` once on the
-new machine and Harness provisions the local model and rebuilds derived indexes automatically.
+Do not commit `.harness/.models/` or `.harness/.index/`; the model is shared globally and the
+semantic index is project-specific derived data.
 
-`harness init` downloads the pinned embedding model once and stores it locally under
-`.harness/.models/embeddings/`. Every AI tool uses the same semantic index through
-`harness context`; no API key, Docker daemon, cloud vector database, Ollama, or per-agent
-setup is required. Markdown remains the versionable source of truth; model files and vector
-indexes are rebuildable and ignored by Git.
+The npm package postinstall provisions the pinned embedding model once in a user-level cache
+(`~/.cache/harness/models` on Linux; `HARNESS_MODEL_CACHE_DIR` overrides it). `harness init` is
+offline-safe and never downloads a model. Run `harness memory semantic setup` to build the
+project's vector index against that shared model. Markdown remains the versionable source of
+truth; model files and vector indexes are rebuildable and ignored by Git.
 
 ### If the installed CLI version is older than the package you installed
 
@@ -169,7 +173,7 @@ If those versions differ, prioritize the npm user prefix and refresh the shell c
 export PATH="$(npm prefix -g)/bin:$PATH"
 hash -r 2>/dev/null || true
 npm install -g @esteban-ll-aguilar/harness-cli@latest \
-  --allow-scripts=onnxruntime-node,protobufjs
+  --allow-scripts=onnxruntime-node,protobufjs,@esteban-ll-aguilar/harness-cli
 harness --version
 harness init --repair
 ```
@@ -300,7 +304,7 @@ harness new-change mobile-login --lang=dart # Uses Dart
 │       └── docs/        # Additional docs
 ├── .index/          # BM25 retrieval index (derived, gitignored)
 │   └── semantic/     # Local embedding vectors (derived, gitignored)
-├── .models/          # ONNX embedding model provisioned by init (derived, gitignored)
+├── .models/          # Legacy project cache only; current model cache is global
 ├── tests/           # Global test utilities
 │   ├── unit/
 │   ├── integration/
@@ -388,9 +392,11 @@ as an **Obsidian vault** (a Map of Content is auto-generated in `memory/obsidian
 ### Retrieval (RAG)
 
 - Markdown is the versioned source of truth. Derived BM25, graph and semantic indexes live under
-  `.harness/.index/`; the pinned local model lives in `.harness/.models/` and is rebuildable.
+  `.harness/.index/`; the pinned local model lives in the user-level Harness cache and is reusable
+  across projects.
 - Semantic vectors use the multilingual local ONNX model, are incrementally rebuilt by chunk,
-  and work offline after `harness init` has provisioned the model.
+  and work offline after package installation has provisioned the global model. `harness init`
+  does not perform network/model work.
 - If semantic inference cannot run, `harness context` explicitly degrades to provenance graph +
   BM25 instead of failing work or using a cloud provider.
 - `harness memory search "auth token"` returns ranked docs with snippets.

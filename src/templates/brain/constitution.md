@@ -164,7 +164,7 @@
 - `.harness/brain/` y `specs/` son memoria durable versionada; Obsidian es una
   vista Markdown, no una fuente paralela de verdad.
 - Los índices BM25/grafo/vector y el modelo local son derivados reproducibles:
-  viven bajo `.harness/.index/` y `.harness/.models/`, no se versionan ni se
+  viven bajo `.harness/.index/` y el caché global del usuario, no se versionan ni se
   tratan como evidencia primaria.
 - Todo agente puede enviar una observación con claim, scope, source y evidence
   a `memory/inbox/`. **Solo Memory Steward** la valida, deduplica y promueve a

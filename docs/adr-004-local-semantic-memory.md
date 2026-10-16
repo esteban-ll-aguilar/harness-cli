@@ -16,7 +16,8 @@ download, disk use and runtime cost.
 
 Keep Markdown, specs and ADRs as canonical Git-tracked memory. Keep BM25 +
 provenance graph as the mandatory, offline baseline. Use local Transformers.js
-embeddings only as an optional, derived index provisioned by `harness init`.
+embeddings only as an optional, derived index whose model is provisioned once by npm
+postinstall into a user-level cache.
 The system must fall back to the baseline on provisioning/index/query failure.
 
 Promotion of a community-summary or external-vector adapter requires a versioned

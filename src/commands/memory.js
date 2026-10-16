@@ -6,7 +6,7 @@ const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findRefer
 const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
 const { submitObservation, processInbox } = require('../utils/memorySteward.js');
 const { memoryHealth } = require('../utils/memoryHealth.js');
-const { buildSemanticIndex, getSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
+const { buildSemanticIndex, getSemanticIndex, querySemanticIndex, getModelStatus } = require('../utils/semanticMemory.js');
 const { runMemoryEvaluation } = require('../utils/memoryEval.js');
 
 /**
@@ -149,7 +149,13 @@ function semanticCmd(harnessDir, args) {
             return hits;
         }
         const index = getSemanticIndex(harnessDir, { rebuildIfMissing: false });
-        console.log(index ? `🧠 Semantic memory: ${index.documents.length} chunks · ${index.model} · built ${index.builtAt}` : '⚠️  Semantic memory not initialized. Run: harness memory semantic setup');
+        const model = getModelStatus({ model: index?.model });
+        console.log(model.ready
+            ? `🧠 Global model ready: ${model.cacheDir}`
+            : `⚠️  Global model not provisioned: ${model.cacheDir}`);
+        console.log(index
+            ? `   Project semantic index: ${index.documents.length} chunks · ${index.model} · built ${index.builtAt}`
+            : '   Project semantic index not initialized. Run: harness memory semantic setup');
         return index;
     } catch (e) {
         console.log(`❌ Semantic memory failed: ${e.message}`);

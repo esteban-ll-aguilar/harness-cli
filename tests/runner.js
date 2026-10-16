@@ -69,7 +69,7 @@ const { ContextBudget } = require('../src/utils/contextBudget.js');
 const { submitObservation, processInbox } = require('../src/utils/memorySteward.js');
 const { repairAgentLayout } = require('../src/utils/projectLayout.js');
 const { memoryHealth } = require('../src/utils/memoryHealth.js');
-const { cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, buildSemanticIndex, getSemanticIndex, querySemanticIndex, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
+const { cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, buildSemanticIndex, getSemanticIndex, querySemanticIndex, getGlobalModelCacheDir, getModelStatus, modelMarkerPath, DEFAULT_MODEL } = require('../src/utils/semanticMemory.js');
 const { DEFAULT_AGENTS } = require('../src/commands/agent.js');
 const { runMemoryEvaluation } = require('../src/utils/memoryEval.js');
 const { validateCompletionReceipt } = require('../src/utils/completionReceipt.js');
@@ -261,6 +261,23 @@ test('semantic memory incrementally reuses vectors and retrieves Spanish offline
     const hits = querySemanticIndex(h, 'validar credenciales de acceso', { embedder, allowRemote: false, topN: 1 });
     assertEqual(hits[0].source, 'brain/seguridad.md', 'Spanish semantic query should retrieve the relevant durable memory');
     fs.rmSync(tmp, { recursive: true });
+});
+
+test('semantic model resolves to one global cache and exposes readiness without downloading', () => {
+    const previous = process.env.HARNESS_MODEL_CACHE_DIR;
+    const custom = fs.mkdtempSync('/tmp/harness-global-model-');
+    process.env.HARNESS_MODEL_CACHE_DIR = custom;
+    assertEqual(getGlobalModelCacheDir(), custom, 'Configured model cache must be global and overridable');
+    assertFalse(getModelStatus().ready, 'A cache without a readiness marker must not be trusted');
+    fs.writeFileSync(modelMarkerPath(custom), JSON.stringify({ model: DEFAULT_MODEL }));
+    assertTrue(getModelStatus().ready, 'A matching marker must report a ready shared model');
+    if (previous === undefined) delete process.env.HARNESS_MODEL_CACHE_DIR; else process.env.HARNESS_MODEL_CACHE_DIR = previous;
+    fs.rmSync(custom, { recursive: true });
+});
+
+test('postinstall skip flag is safe for CI and restricted environments', () => {
+    const output = execSync('node scripts/postinstall.js', { encoding: 'utf8', env: { ...process.env, HARNESS_SKIP_MODEL_DOWNLOAD: '1' } });
+    assertTrue(output.includes('Skipping global semantic model download'), 'Postinstall must honor the explicit skip flag');
 });
 
 test('semantic memory rejects an incompatible manifest and deterministic context falls back to BM25 plus graph', () => {

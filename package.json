@@ -8,6 +8,7 @@
     "harness-mcp": "bin/harness-mcp.js"
   },
   "scripts": {
+    "postinstall": "node scripts/postinstall.js",
     "test": "node tests/runner.js",
     "test:unit": "node tests/runner.js",
     "test:smoke": "node bin/harness.js --version && node bin/harness.js help && npm pack --dry-run",
@@ -58,6 +59,7 @@
   "files": [
     "bin/",
     "src/",
+    "scripts/",
     "docs/",
     "README.md",
     "LICENSE"

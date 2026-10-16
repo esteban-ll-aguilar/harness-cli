@@ -9,6 +9,8 @@ on:
 jobs:
   guardian:
     name: 🛡️ Guardian Gates
+    env:
+      HARNESS_SKIP_MODEL_DOWNLOAD: '1'
     runs-on: ubuntu-latest
 
     steps:

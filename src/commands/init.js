@@ -68,18 +68,17 @@ async function initProject(cwd, args) {
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
         // A checkout on a new machine keeps the canonical Markdown memory but
-        // not the derived model/index. Repair provisions only what is missing;
-        // it never reinitializes or overwrites the project vault.
+        // not derived indexes. Repair never downloads a model or overwrites
+        // the project vault; semantic setup remains an explicit operation.
         if (semanticMemory) {
             try {
-                const { getSemanticIndex, buildSemanticIndex } = require('../utils/semanticMemory.js');
-                if (!getSemanticIndex(harnessDir, { rebuildIfMissing: false })) {
-                    const index = buildSemanticIndex(harnessDir);
-                    console.log(`🧠 Semantic memory provisioned during repair: ${index.documents.length} chunks`);
-                }
+                const { getModelStatus, getGlobalModelCacheDir } = require('../utils/semanticMemory.js');
+                const status = getModelStatus();
+                console.log(status.ready
+                    ? `🧠 Global semantic model ready: ${status.cacheDir}`
+                    : `ℹ️  Global semantic model not provisioned yet: ${getGlobalModelCacheDir()}`);
             } catch (e) {
-                console.log(`⚠️  Semantic memory still unavailable: ${e.message}`);
-                console.log('   BM25 + graph retrieval remain active; retry: harness memory semantic setup');
+                console.log(`⚠️  Could not inspect global semantic model: ${e.message}`);
             }
         }
         console.log('✅ Harness layout repaired: root AGENTS.md and .agents/ projection are current.');
@@ -335,14 +334,15 @@ isMonorepo: ${detection.isMonorepo}
         saveIndex(harnessDir, index);
         generateObsidian(cwd, harnessDir);
 
-        // Semantic long-term memory is local to Node. The embedding model is
-        // provisioned once into .harness/.models and the derived vector index
-        // stays beside the other rebuildable indexes (never a cloud service).
+        // Model provisioning happens once during npm install. Init deliberately
+        // stays offline-safe; the project-specific vector index is built by the
+        // explicit `harness memory semantic setup` command.
         let semanticResult = null;
         if (semanticMemory) {
             try {
-                const { buildSemanticIndex } = require('../utils/semanticMemory.js');
-                semanticResult = buildSemanticIndex(harnessDir);
+                const { getModelStatus, getGlobalModelCacheDir } = require('../utils/semanticMemory.js');
+                const status = getModelStatus();
+                semanticResult = { ...status, documents: [] };
             } catch (e) {
                 semanticResult = { error: e.message };
             }
@@ -379,8 +379,9 @@ ${!semanticMemory ? `
    BM25 + graph retrieval remain active; enable later with: harness memory semantic setup` : semanticResult?.error ? `
 ⚠️  Semantic memory setup could not complete: ${semanticResult.error}
    BM25 + graph retrieval remain active. Re-run: harness memory semantic setup` : `
-🧠 Semantic long-term memory ready: ${semanticResult?.documents?.length || 0} indexed chunks
-   Model cache: .harness/.models/embeddings (local Node inference)`}
+🧠 Global semantic model ${semanticResult?.ready ? 'ready' : 'not provisioned yet'}
+   Model cache: ${semanticResult?.cacheDir || 'run npm install with scripts enabled'}
+   Project index: run harness memory semantic setup (rebuildable, gitignored)`}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering

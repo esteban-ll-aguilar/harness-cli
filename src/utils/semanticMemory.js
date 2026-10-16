@@ -2,15 +2,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
 const { listFiles } = require('./fileUtils.js');
 const { fingerprint } = require('./retrieval.js');
 
 // Multilingual by default: durable project knowledge may be written in Spanish,
 // English, or both. Transformers.js downloads the ONNX artifacts once during
-// `harness init` and uses the project-local cache afterwards.
+// package installation and reuses the same user-level cache across projects.
 const DEFAULT_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
 const INDEX_VERSION = 1;
+const MODEL_MARKER = '.harness-model.json';
 // The embedding worker runs with the user's project as cwd. Resolve the
 // provider from Harness itself so consumers never need to install it locally.
 const TRANSFORMERS_ENTRY = require.resolve('@huggingface/transformers');
@@ -41,10 +42,27 @@ function isCompatibleSemanticIndex(index, { model } = {}) {
     );
 }
 
+function getGlobalModelCacheDir() {
+    if (process.env.HARNESS_MODEL_CACHE_DIR) return path.resolve(process.env.HARNESS_MODEL_CACHE_DIR);
+    if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Harness', 'models');
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Caches', 'Harness', 'models');
+    return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'harness', 'models');
+}
+
 function semanticDir(harnessDir) { return path.join(harnessDir, '.index', 'semantic'); }
 function semanticIndexPath(harnessDir) { return path.join(semanticDir(harnessDir), 'index.json'); }
-function semanticModelDir(harnessDir) { return path.join(harnessDir, '.models', 'embeddings'); }
-function semanticLockPath(harnessDir) { return path.join(harnessDir, '.models', 'embeddings.lock'); }
+// Kept as a compatibility-named helper for callers from older releases. The
+// model itself is global; only the semantic index remains project-local.
+function semanticModelDir() { return getGlobalModelCacheDir(); }
+function semanticLockPath() { return path.join(getGlobalModelCacheDir(), '.harness-model.lock'); }
+function modelMarkerPath(cacheDir = getGlobalModelCacheDir()) { return path.join(cacheDir, MODEL_MARKER); }
+
+function getModelStatus({ model = DEFAULT_MODEL, cacheDir = getGlobalModelCacheDir() } = {}) {
+    const marker = modelMarkerPath(cacheDir);
+    let metadata = null;
+    try { metadata = JSON.parse(fs.readFileSync(marker, 'utf8')); } catch (_) {}
+    return { ready: Boolean(metadata && metadata.model === model), model, cacheDir, marker, metadata };
+}
 
 function chunksForVault(harnessDir) {
     const docs = [];
@@ -72,7 +90,10 @@ const fs = require('fs');
   env.cacheDir = input.cacheDir;
   env.allowLocalModels = true;
   env.allowRemoteModels = input.allowRemote !== false;
-  const extractor = await pipeline('feature-extraction', input.model);
+  const pipelineOptions = input.progress
+    ? { progress_callback: progress => process.stderr.write('HARNESS_PROGRESS ' + JSON.stringify(progress) + '\\n') }
+    : {};
+  const extractor = await pipeline('feature-extraction', input.model, pipelineOptions);
   const vectors = [];
   for (const text of input.texts) {
     const result = await extractor(text, { pooling: 'mean', normalize: true });
@@ -81,33 +102,94 @@ const fs = require('fs');
   process.stdout.write(JSON.stringify({ vectors }));
 })().catch(error => { process.stderr.write(error.stack || error.message); process.exit(1); });`;
 
-function embedTexts(harnessDir, texts, { model = DEFAULT_MODEL, allowRemote = true } = {}) {
+function embedTexts(harnessDir, texts, { model = DEFAULT_MODEL, allowRemote = true, cacheDir = getGlobalModelCacheDir() } = {}) {
     const inputPath = path.join(os.tmpdir(), `harness-embed-${process.pid}-${Date.now()}.json`);
-    fs.mkdirSync(semanticModelDir(harnessDir), { recursive: true });
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const lockPath = path.join(cacheDir, '.harness-model.lock');
     let lockFd;
     try {
-        // Provisioning ONNX is large. A simple project-local lock prevents two
-        // concurrent agent sessions from downloading/corrupting the same cache.
-        lockFd = fs.openSync(semanticLockPath(harnessDir), 'wx');
+        // Provisioning ONNX is large. A global lock prevents concurrent agent
+        // sessions or npm installs from downloading/corrupting shared files.
+        lockFd = fs.openSync(lockPath, 'wx');
         fs.writeFileSync(lockFd, String(process.pid));
     } catch (e) {
         if (e.code === 'EEXIST') {
             let alive = false;
-            try { const pid = Number(fs.readFileSync(semanticLockPath(harnessDir), 'utf8')); process.kill(pid, 0); alive = true; } catch (_) {}
+            try { const pid = Number(fs.readFileSync(lockPath, 'utf8')); process.kill(pid, 0); alive = true; } catch (_) {}
             if (!alive) {
-                try { fs.unlinkSync(semanticLockPath(harnessDir)); lockFd = fs.openSync(semanticLockPath(harnessDir), 'wx'); fs.writeFileSync(lockFd, String(process.pid)); } catch (_) { throw new Error('Semantic model provisioning is already running; retry after it completes.'); }
+                try { fs.unlinkSync(lockPath); lockFd = fs.openSync(lockPath, 'wx'); fs.writeFileSync(lockFd, String(process.pid)); } catch (_) { throw new Error('Semantic model provisioning is already running; retry after it completes.'); }
             } else throw new Error('Semantic model provisioning is already running; retry after it completes.');
         } else throw e;
     }
-    fs.writeFileSync(inputPath, JSON.stringify({ texts, model, allowRemote, cacheDir: semanticModelDir(harnessDir), transformersEntry: TRANSFORMERS_ENTRY }));
+    fs.writeFileSync(inputPath, JSON.stringify({ texts, model, allowRemote, cacheDir, transformersEntry: TRANSFORMERS_ENTRY }));
     try {
         const result = spawnSync(process.execPath, ['-e', EMBED_SCRIPT, inputPath], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, timeout: 10 * 60 * 1000 });
         if (result.status !== 0) throw new Error(result.stderr || 'Embedding process failed');
         return JSON.parse(result.stdout).vectors;
     } finally {
         try { fs.unlinkSync(inputPath); } catch (e) {}
-        try { if (lockFd !== undefined) fs.closeSync(lockFd); fs.unlinkSync(semanticLockPath(harnessDir)); } catch (e) {}
+        try { if (lockFd !== undefined) fs.closeSync(lockFd); fs.unlinkSync(lockPath); } catch (e) {}
     }
+}
+
+function provisionSemanticModel({ model = DEFAULT_MODEL, cacheDir = getGlobalModelCacheDir(), allowRemote = true } = {}) {
+    const status = getModelStatus({ model, cacheDir });
+    if (status.ready) return status;
+    // An empty input still forces Transformers.js to load and cache the model.
+    embedTexts(process.cwd(), [], { model, cacheDir, allowRemote });
+    const metadata = { model, provider: 'transformers.js-local', provisionedAt: new Date().toISOString() };
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(modelMarkerPath(cacheDir), JSON.stringify(metadata, null, 2));
+    return getModelStatus({ model, cacheDir });
+}
+
+function provisionSemanticModelWithProgress({ model = DEFAULT_MODEL, cacheDir = getGlobalModelCacheDir(), allowRemote = true, onProgress = () => {} } = {}) {
+    const status = getModelStatus({ model, cacheDir });
+    if (status.ready) return Promise.resolve(status);
+    const inputPath = path.join(os.tmpdir(), `harness-embed-progress-${process.pid}-${Date.now()}.json`);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const lockPath = path.join(cacheDir, '.harness-model.lock');
+    let lockFd;
+    try {
+        lockFd = fs.openSync(lockPath, 'wx');
+        fs.writeFileSync(lockFd, String(process.pid));
+    } catch (error) {
+        if (error.code === 'EEXIST') throw new Error('Semantic model provisioning is already running; retry after it completes.');
+        throw error;
+    }
+    fs.writeFileSync(inputPath, JSON.stringify({ texts: [], model, allowRemote, cacheDir, transformersEntry: TRANSFORMERS_ENTRY, progress: true }));
+    return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['-e', EMBED_SCRIPT, inputPath], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        let pending = '';
+        child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+        child.stderr.on('data', chunk => {
+            pending += chunk.toString();
+            const lines = pending.split(/\r?\n/);
+            pending = lines.pop() || '';
+            for (const line of lines) {
+                if (line.startsWith('HARNESS_PROGRESS ')) {
+                    try { onProgress(JSON.parse(line.slice('HARNESS_PROGRESS '.length))); } catch (_) {}
+                } else if (line) stderr += `${line}\n`;
+            }
+        });
+        const cleanup = () => {
+            try { fs.unlinkSync(inputPath); } catch (_) {}
+            try { if (lockFd !== undefined) fs.closeSync(lockFd); fs.unlinkSync(lockPath); } catch (_) {}
+        };
+        child.on('error', error => { cleanup(); reject(error); });
+        child.on('close', code => {
+            if (pending.startsWith('HARNESS_PROGRESS ')) {
+                try { onProgress(JSON.parse(pending.slice('HARNESS_PROGRESS '.length))); } catch (_) {}
+            } else if (pending) stderr += pending;
+            cleanup();
+            if (code !== 0) return reject(new Error(stderr || 'Embedding process failed'));
+            const metadata = { model, provider: 'transformers.js-local', provisionedAt: new Date().toISOString() };
+            fs.writeFileSync(modelMarkerPath(cacheDir), JSON.stringify(metadata, null, 2));
+            resolve(getModelStatus({ model, cacheDir }));
+        });
+    });
 }
 
 function buildSemanticIndex(harnessDir, options = {}) {
@@ -156,4 +238,4 @@ function querySemanticIndex(harnessDir, query, options = {}) {
     return index.documents.map(d => ({ ...d, score: cosineSimilarity(vector, d.vector) })).sort((a, b) => b.score - a.score).slice(0, options.topN || 5);
 }
 
-module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, semanticIndexPath, semanticModelDir, semanticLockPath, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };
+module.exports = { DEFAULT_MODEL, cosineSimilarity, buildSemanticManifest, isCompatibleSemanticIndex, semanticIndexPath, getGlobalModelCacheDir, semanticModelDir, semanticLockPath, modelMarkerPath, getModelStatus, provisionSemanticModel, provisionSemanticModelWithProgress, chunksForVault, embedTexts, buildSemanticIndex, loadSemanticIndex, getSemanticIndex, querySemanticIndex };

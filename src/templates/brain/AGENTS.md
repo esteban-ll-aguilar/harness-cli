@@ -266,7 +266,7 @@ This project uses **tiered memory + local hybrid retrieval** over the `.harness`
 
 - **ALWAYS loaded:** AGENTS.md (includes every project rule) + constitution.md + north-star.md (~500 tokens)
 - **ON DEMAND:** semantic vectors + provenance graph + BM25 + symbol lookup, folded into one
-  budgeted call. The semantic model runs locally from `.harness/.models/embeddings`; if it is
+  budgeted call. The semantic model runs locally from the shared Harness user cache; if it is
   unavailable, graph + BM25 remain the deterministic fallback.
 - **TRIGGER:** Load spec.md when working on that feature
 - **RARE:** Full vault scan (only on explicit request)
