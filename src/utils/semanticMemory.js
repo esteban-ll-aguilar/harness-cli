@@ -11,6 +11,9 @@ const { fingerprint } = require('./retrieval.js');
 // `harness init` and uses the project-local cache afterwards.
 const DEFAULT_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
 const INDEX_VERSION = 1;
+// The embedding worker runs with the user's project as cwd. Resolve the
+// provider from Harness itself so consumers never need to install it locally.
+const TRANSFORMERS_ENTRY = require.resolve('@huggingface/transformers');
 
 function cosineSimilarity(a, b) {
     let dot = 0, aa = 0, bb = 0;
@@ -65,7 +68,7 @@ const EMBED_SCRIPT = `
 const fs = require('fs');
 (async () => {
   const input = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-  const { pipeline, env } = await import('@huggingface/transformers');
+  const { pipeline, env } = await import(input.transformersEntry);
   env.cacheDir = input.cacheDir;
   env.allowLocalModels = true;
   env.allowRemoteModels = input.allowRemote !== false;
@@ -96,7 +99,7 @@ function embedTexts(harnessDir, texts, { model = DEFAULT_MODEL, allowRemote = tr
             } else throw new Error('Semantic model provisioning is already running; retry after it completes.');
         } else throw e;
     }
-    fs.writeFileSync(inputPath, JSON.stringify({ texts, model, allowRemote, cacheDir: semanticModelDir(harnessDir) }));
+    fs.writeFileSync(inputPath, JSON.stringify({ texts, model, allowRemote, cacheDir: semanticModelDir(harnessDir), transformersEntry: TRANSFORMERS_ENTRY }));
     try {
         const result = spawnSync(process.execPath, ['-e', EMBED_SCRIPT, inputPath], { encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, timeout: 10 * 60 * 1000 });
         if (result.status !== 0) throw new Error(result.stderr || 'Embedding process failed');

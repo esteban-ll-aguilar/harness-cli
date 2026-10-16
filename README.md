@@ -151,6 +151,29 @@ new machine and Harness provisions the local model and rebuilds derived indexes 
 setup is required. Markdown remains the versionable source of truth; model files and vector
 indexes are rebuildable and ignored by Git.
 
+### If the installed CLI version is older than the package you installed
+
+Node can have more than one global npm prefix. Verify the executable actually selected by your
+shell:
+
+```bash
+which harness
+harness --version
+npm prefix -g
+"$(npm prefix -g)/bin/harness" --version
+```
+
+If those versions differ, prioritize the npm user prefix and refresh the shell command cache:
+
+```bash
+export PATH="$(npm prefix -g)/bin:$PATH"
+hash -r 2>/dev/null || true
+npm install -g @esteban-ll-aguilar/harness-cli@latest \
+  --allow-scripts=onnxruntime-node,protobufjs
+harness --version
+harness init --repair
+```
+
 ## 🔌 AI Tool Selection
 
 `harness init` asks which AI tool(s) you use (multi-select with `␣` / `↑↓` / `Enter`).
