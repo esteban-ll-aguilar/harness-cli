@@ -41,7 +41,10 @@ jobs:
       - name: Check npm version (Trusted Publishing needs >= 11.5.1)
         run: |
           npm --version
-          node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number); const [a,b,c]=v; process.exit((a<11||(a===11&&(b<5||(b===5&&c<1))))?1:0);"
+        node -e "const v=require('child_process').execSync('npm --version').toString().trim().split('.').map(Number); const [a,b,c]=v; process.exit((a<11||(a===11&&(b<5||(b===5&&c<1))))?1:0);"
+
+      - name: Install dependencies reproducibly
+        run: npm ci
 
       - name: Run tests
         run: npm test
