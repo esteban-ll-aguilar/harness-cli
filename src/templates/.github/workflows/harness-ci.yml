@@ -19,8 +19,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Harness CLI
-        run: npm install -g @harness/sdd-bdd-tdd
+      - name: Install dependencies reproducibly
+        run: npm ci
 
       - name: Validate Specs Exist (SDD)
         run: |
@@ -40,23 +40,5 @@ jobs:
           fi
           echo "✅ All specs validated"
 
-      - name: Harness Guardian Review
-        run: npx harness review
-
-      - name: Run Project Tests (from .harnessrc)
-        run: |
-          RUNNER=$(node -e "try { const rc=require('./.harnessrc'); process.stdout.write(rc.language?.runner || ''); } catch(e) { process.stdout.write(''); }")
-          if [ -n "$RUNNER" ] && [ "$RUNNER" != "npm test" ]; then
-            echo "Running: $RUNNER"
-            eval "$RUNNER"
-          elif [ -f "package.json" ]; then
-            echo "Detected package.json — running npm test"
-            npm test
-          else
-            echo "No test runner detected in .harnessrc — skipping (configure rc.language.runner)"
-          fi
-        continue-on-error: true
-
-      - name: Security Audit
-        run: npm audit --audit-level=moderate
-        continue-on-error: true
+      - name: Unified release gate
+        run: npm run release:check

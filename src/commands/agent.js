@@ -7,7 +7,7 @@ const { loadIndex, search } = require('../utils/retrieval.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
-const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'reviewer', 'guardian'];
+const AGENT_ORDER = ['interviewer', 'architect', 'tester', 'coder', 'backend-engineer', 'frontend-engineer', 'security-reviewer', 'reviewer', 'guardian', 'memory-steward'];
 
 const DEFAULT_AGENTS = {
     interviewer: {
@@ -34,6 +34,21 @@ const DEFAULT_AGENTS = {
         goal: 'Implement the spec task by task following Red-Green-Refactor.',
         instructions: 'Read tasks.md + spec.md + tests/. Implement each task with TDD. Respect the constitution (max 200 lines/file, no any, parameterized SQL).'
     },
+    'backend-engineer': {
+        emoji: '⚙️', model: 'capable',
+        goal: 'Implement and review service boundaries, data integrity and operational behavior.',
+        instructions: 'Work as a supporting specialist for a claimed task. Define contracts first, validate inputs at boundaries, preserve authorization, use transactions/idempotency where relevant, and add unit plus integration tests. Submit durable findings to memory/inbox; do not promote them.'
+    },
+    'frontend-engineer': {
+        emoji: '🖥️', model: 'capable',
+        goal: 'Implement accessible, resilient user-facing flows from approved BDD scenarios.',
+        instructions: 'Work as a supporting specialist for a claimed task. Cover loading, empty, error and success states; keyboard navigation, semantics, responsive behavior and API failure handling. Add component/E2E tests as appropriate and submit findings to memory/inbox.'
+    },
+    'security-reviewer': {
+        emoji: '🔐', model: 'capable',
+        goal: 'Review threat-sensitive changes before Guardian approval.',
+        instructions: 'Check authentication, authorization, input/output handling, secrets, dependency risk and abuse controls. Report evidence and unresolved risks; do not silently approve an untested security property.'
+    },
     reviewer: {
         emoji: '🔍',
         model: 'capable',
@@ -45,6 +60,12 @@ const DEFAULT_AGENTS = {
         model: 'fast',
         goal: 'Run the quality gates and block production unless everything passes.',
         instructions: 'Run lint, tests, coverage (>=80%), security scan. Output approval or failure report. If PASS, mark the spec as done.'
+    },
+    'memory-steward': {
+        emoji: '🧠',
+        model: 'fast',
+        goal: 'Protect long-term project memory by validating, deduplicating and promoting provenance-bearing observations.',
+        instructions: 'You are the sole durable-memory writer. Read memory/inbox/, validate source/evidence, process only with harness memory steward, and never invent or overwrite facts. Other agents submit observations; you publish receipts.'
     }
 };
 
@@ -281,6 +302,9 @@ function runAgent(cwd, args) {
         '',
         `## MANDATE`,
         instructionsText(def),
+        '',
+        '## NON-NEGOTIABLE WORKFLOW',
+        'Before editing: run `harness work start ' + (specId || '<specId>') + '`. Follow SDD → BDD → Red → Green → Refactor. For every normative REQ, preserve @covers evidence and add a hostile/adversarial test (malformed DTO, wrong type, authorization, boundary, replay or concurrency as applicable). Do not claim completion without exact test output and a completion receipt. Submit reusable evidence to memory/inbox; only Memory Steward promotes it.',
         '',
         '## COMPETENCY SCRIPT',
         script || '(none — follow the mandate)',

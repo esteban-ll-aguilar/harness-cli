@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { loadIndex, search } = require('./retrieval.js');
 const { loadGraph, queryGraph } = require('./graphIndex.js');
+const { ContextBudget } = require('./contextBudget.js');
+const { getSemanticIndex, querySemanticIndex } = require('./semanticMemory.js');
 
 /**
  * Tiered Memory Loader
@@ -16,38 +18,79 @@ const TIERS = {
     RARE: 'rare'           // Full file — only on explicit request
 };
 
-function getAlwaysContext(harnessDir) {
+function getAlwaysContext(harnessDir, { budgetTokens = 250 } = {}) {
     const files = [
         'brain/AGENTS.md',
         'brain/constitution.md',
         'brain/north-star.md'
     ];
-    const context = [];
+    const budget = new ContextBudget(budgetTokens, { working: 1 });
     for (const file of files) {
         const fp = path.join(harnessDir, file);
         if (fs.existsSync(fp)) {
-            context.push(`--- ${file} ---\n${fs.readFileSync(fp, 'utf8')}`);
+            const full = fs.readFileSync(fp, 'utf8');
+            // Preserve complete, addressable sections rather than an arbitrary
+            // prefix. A locator makes omitted policy discoverable without
+            // silently cutting a rule mid-sentence.
+            const sections = full.split(/(?=^#{1,3}\s+)/m).filter(Boolean);
+            for (let i = 0; i < sections.length; i++) {
+                const text = sections[i].trim(); if (!text) continue;
+                const heading = /^#+\s+([^\n]+)/.exec(text)?.[1] || `section-${i + 1}`;
+                budget.add('working', { id: `${file}#${heading}`, source: `${file}#${heading}`, text, priority: sections.length - i });
+            }
         }
     }
-    return context.join('\n\n');
+    return budget.included.map(item => `--- ${item.source} ---\n${item.text}`).join('\n\n');
 }
 
 function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     if (!query) return '';
+    const selected = [];
+    let remaining = budgetTokens;
+
+    // Semantic retrieval is optional at runtime but shared by every external
+    // agent because it lives behind this one context entry point. It augments
+    // (rather than replaces) the deterministic graph/BM25 evidence below.
+    try {
+        const semantic = getSemanticIndex(harnessDir, { rebuildIfMissing: false, allowRemote: false });
+        if (semantic && semantic.documents?.length) {
+            const hits = querySemanticIndex(harnessDir, query, { topN: 3, allowRemote: false });
+            if (hits.length) {
+                const used = new Set();
+                for (const hit of hits) {
+                    if (used.has(hit.id)) continue;
+                    const text = `--- ${hit.source} (semantic ${hit.score.toFixed(3)}) ---\n${hit.text}`;
+                    const cost = estimateTokens(text);
+                    if (cost > remaining) continue;
+                    used.add(hit.id); remaining -= cost;
+                    selected.push(text);
+                }
+            }
+        }
+    } catch (e) {
+        // A missing/corrupt local model must never block agent work; the
+        // graph and lexical retrieval below remain deterministic fallbacks.
+    }
 
     // Graph retrieval: section-level nodes ranked by BM25 x confidence x
     // recency, superseded/expired facts excluded, cut at an explicit token
     // budget — never dumps a whole file just because one section matched.
     const graph = loadGraph(harnessDir, { rebuild: true });
     if (graph && graph.numNodes > 0) {
-        const { nodes } = queryGraph(graph, query, { budgetTokens });
+        const { nodes } = queryGraph(graph, query, { budgetTokens: remaining });
         if (nodes.length > 0) {
-            return nodes.map(n => {
+            for (const n of nodes) {
                 const label = n.heading ? `${n.file}#${n.heading}` : n.file;
-                return `--- ${label} (${n.type}) ---\n${n.text}`;
-            }).join('\n\n');
+                const text = `--- ${label} (${n.type}) ---\n${n.text}`;
+                const cost = estimateTokens(text);
+                if (cost <= remaining) { selected.push(text); remaining -= cost; }
+            }
         }
     }
+
+    // A vector hit must not suppress graph evidence, which carries validity
+    // and confidence. The combined payload remains strictly budgeted.
+    if (selected.length) return selected.join('\n\n');
 
     // Fallback: whole-file BM25 (empty/no-heading vault, or graph build failed).
     const index = loadIndex(harnessDir, { rebuild: true });
@@ -56,11 +99,20 @@ function getOnDemandContext(harnessDir, query, { budgetTokens = 600 } = {}) {
     const hits = search(index, harnessDir, query, 3);
     if (hits.length === 0) return '';
 
-    return hits.map(r => {
+    const fallback = [];
+    let fallbackRemaining = budgetTokens;
+    for (const r of hits) {
         let content = '';
         try { content = fs.readFileSync(path.join(harnessDir, r.rel), 'utf8'); } catch (e) {}
-        return `--- ${r.rel} ---\n${content}`;
-    }).join('\n\n');
+        const header = `--- ${r.rel} ---\n`;
+        const allowedChars = Math.max(0, (fallbackRemaining - estimateTokens(header)) * 4);
+        if (allowedChars <= 0) break;
+        const text = `${header}${content.slice(0, allowedChars)}`;
+        const cost = estimateTokens(text);
+        if (cost > fallbackRemaining) break;
+        fallback.push(text); fallbackRemaining -= cost;
+    }
+    return fallback.join('\n\n');
 }
 
 function getTriggerContext(harnessDir, changedFile) {

@@ -3,3 +3,12 @@ node_modules/
 coverage/
 .DS_Store
 *.log
+
+# Harness derived runtime state. Keep .harness/brain and .harness/specs tracked:
+# they are the canonical project memory and delivery contracts.
+.harness/.index/
+.harness/.models/
+.harness/reports/
+
+# Durable audit memory is intentionally tracked so it travels with the repo.
+# Review it for secrets before committing; use a private repository when needed.

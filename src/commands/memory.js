@@ -4,6 +4,10 @@ const { getHarnessDir, ensureDir, listFiles, parseFrontmatter, timestamp } = req
 const { buildIndex, search, loadIndex, saveIndex } = require('../utils/retrieval.js');
 const { buildSymbolIndex, saveSymbolIndex, getSymbolIndex, findSymbol, findReferences } = require('../utils/symbolIndex.js');
 const { buildGraph, saveGraph, loadGraph, queryGraph } = require('../utils/graphIndex.js');
+const { submitObservation, processInbox } = require('../utils/memorySteward.js');
+const { memoryHealth } = require('../utils/memoryHealth.js');
+const { buildSemanticIndex, getSemanticIndex, querySemanticIndex } = require('../utils/semanticMemory.js');
+const { runMemoryEvaluation } = require('../utils/memoryEval.js');
 
 /**
  * `harness memory` — retrieval over the .harness vault.
@@ -52,6 +56,21 @@ function memory(cwd, args) {
         case 'graph':
             graphCmd(harnessDir, args.slice(1));
             break;
+        case 'observe':
+            observeCmd(harnessDir, args.slice(1));
+            break;
+        case 'steward':
+            stewardCmd(harnessDir, args.slice(1));
+            break;
+        case 'health':
+            healthCmd(harnessDir);
+            break;
+        case 'semantic':
+            semanticCmd(harnessDir, args.slice(1));
+            break;
+        case 'eval':
+            evalCmd(harnessDir, args.slice(1));
+            break;
         default:
             console.log(`
 📦 HARNESS MEMORY — retrieval over the .harness vault
@@ -64,7 +83,77 @@ function memory(cwd, args) {
   harness memory stats              Show corpus statistics
   harness memory compact [--days=N] Archive session logs older than N days (default 30)
                                     into a digest — keeps search relevant, never deletes data
+  harness memory observe --claim= --source= --scope= --evidence=
+                                    Submit evidence for the Memory Steward
+  harness memory steward [--actor=memory-steward]
+                                    Validate and promote durable observations
+  harness memory health             Check graph provenance and dangling references
+  harness memory semantic setup|search|status
+                                    Manage local, repo-backed semantic retrieval
 `);
+    }
+}
+
+function evalCmd(harnessDir, args) {
+    const report = runMemoryEvaluation();
+    fs.mkdirSync(path.join(harnessDir, 'memory', 'session-logs'), { recursive: true });
+    fs.writeFileSync(path.join(harnessDir, 'memory', 'session-logs', `memory-eval-${Date.now()}.json`), JSON.stringify(report, null, 2));
+    if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
+    else console.log(`🧪 Memory eval: ${report.pass ? 'PASS' : 'FAIL'} · recall@k ${report.recallAtK} · stale-hit ${report.staleHitRate} · traceability ${report.traceabilityCoverage}`);
+    return report;
+}
+
+function observeCmd(harnessDir, args) {
+    const flags = Object.fromEntries(args.filter(a => a.startsWith('--') && a.includes('=')).map(a => { const i = a.indexOf('='); return [a.slice(2, i), a.slice(i + 1)]; }));
+    try {
+        submitObservation(harnessDir, flags);
+        console.log('🧠 Observation submitted to memory/inbox/. The Memory Steward is the only role that can promote it.');
+    } catch (e) { console.log(`❌ ${e.message}`); }
+}
+
+function stewardCmd(harnessDir, args) {
+    const actor = args.find(a => a.startsWith('--actor='))?.slice(8) || 'memory-steward';
+    const result = processInbox(harnessDir, { actor });
+    console.log(`🧠 Memory Steward — promoted: ${result.promoted}, duplicates: ${result.duplicates}, rejected: ${result.rejected}`);
+}
+
+function healthCmd(harnessDir) {
+    const report = memoryHealth(loadGraph(harnessDir));
+    console.log(`\n🩺 MEMORY HEALTH — ${report.status.toUpperCase()}`);
+    console.log(`   Nodes: ${report.nodeCount} · edges: ${report.edgeCount} · superseded: ${report.supersededNodes.length}`);
+    if (report.danglingEdges.length) {
+        console.log(`   ⚠️  Dangling references: ${report.danglingEdges.length}`);
+        for (const edge of report.danglingEdges.slice(0, 5)) console.log(`      ${edge.from} → ${edge.to}`);
+    }
+    if (report.orphanedEdges.length) console.log(`   ⚠️  Orphaned edges: ${report.orphanedEdges.length}`);
+    if (report.status === 'pass') console.log('   ✅ No dangling or orphaned graph evidence.');
+    console.log('');
+    return report;
+}
+
+function semanticCmd(harnessDir, args) {
+    const sub = args[0] || 'status';
+    try {
+        if (sub === 'setup' || sub === 'index') {
+            const index = buildSemanticIndex(harnessDir);
+            console.log(`🧠 Semantic index ready: ${index.documents.length} chunks · ${index.dimensions} dimensions · ${index.model}`);
+            return index;
+        }
+        if (sub === 'search') {
+            const query = args.slice(1).join(' ').trim();
+            if (!query) { console.log('❌ Usage: harness memory semantic search <query>'); return; }
+            const hits = querySemanticIndex(harnessDir, query, { topN: 5 });
+            if (!hits.length) { console.log('⚠️  Semantic index is missing. Run: harness memory semantic setup'); return; }
+            console.log(`🧠 Semantic results for "${query}":`);
+            for (const hit of hits) console.log(`   ${hit.score.toFixed(3)}  ${hit.source}`);
+            return hits;
+        }
+        const index = getSemanticIndex(harnessDir, { rebuildIfMissing: false });
+        console.log(index ? `🧠 Semantic memory: ${index.documents.length} chunks · ${index.model} · built ${index.builtAt}` : '⚠️  Semantic memory not initialized. Run: harness memory semantic setup');
+        return index;
+    } catch (e) {
+        console.log(`❌ Semantic memory failed: ${e.message}`);
+        return null;
     }
 }
 
@@ -350,4 +439,4 @@ function generateObsidian(cwd, harnessDir) {
     console.log(`   Regenerate with: harness memory obsidian`);
 }
 
-module.exports = { memory, generateObsidian, compactSessionLogs };
+module.exports = { memory, generateObsidian, compactSessionLogs, healthCmd, semanticCmd };

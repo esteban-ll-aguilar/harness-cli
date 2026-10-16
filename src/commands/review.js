@@ -4,6 +4,7 @@ const { execSync } = require('child_process');
 const { getHarnessDir, loadHarnessRC, listFiles, timestamp } = require('../utils/fileUtils.js');
 const { runTests, findSpecDir } = require('../utils/testRunner.js');
 const { getLanguageConfig } = require('../utils/languageDetector.js');
+const { runQualityGates } = require('../utils/qualityGates.js');
 
 function review(cwd, args) {
     const specId = args[0];
@@ -129,6 +130,10 @@ function review(cwd, args) {
     const runCheck = runTestsGate(cwd, harnessDir, rc, specId, { skipTests, cmd });
     checks.push(runCheck);
 
+    // Configured commands turn Guardian's lint/typecheck/build/coverage/security
+    // promises into auditable gates. Absent configuration stays backward compatible.
+    checks.push(...runQualityGates(cwd, rc.quality));
+
     // Check 7: ADRs for decisions
     const decisionsDir = path.join(harnessDir, 'brain', 'decisions');
     if (fs.existsSync(decisionsDir)) {
@@ -167,6 +172,16 @@ function review(cwd, args) {
     } else {
         checks.push({ name: 'Project rules (none configured)', status: 'WARN' });
     }
+
+    // Check 11: traceability debt is never silently promoted to coverage.
+    const overrides = rc.quality?.traceabilityOverrides || [];
+    const expiredOverrides = overrides.filter(o => Date.parse(o.expiresAt) <= Date.now());
+    const activeOverrides = overrides.filter(o => Date.parse(o.expiresAt) > Date.now());
+    checks.push({
+        name: `Traceability overrides (${activeOverrides.length} active, ${expiredOverrides.length} expired)`,
+        status: expiredOverrides.length ? 'FAIL' : activeOverrides.length ? 'WARN' : 'PASS',
+        hint: activeOverrides.length ? 'Overrides are visible debt and do not count as requirement coverage.' : ''
+    });
 
     // Print results
     for (const check of checks) {

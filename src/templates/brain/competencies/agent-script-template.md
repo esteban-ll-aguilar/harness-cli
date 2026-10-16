@@ -15,7 +15,7 @@
 ## Operating Rules
 
 1. **Context first.** Load the tiered context (AGENTS.md, constitution, north-star) before acting.
-2. **Output to the vault.** Persist your work as Markdown under `memory/session-logs/` with YAML frontmatter:
+2. **Output to the vault.** Persist task evidence as Markdown under `memory/session-logs/` with YAML frontmatter:
    ```yaml
    ---
    date: {{timestamp}}
@@ -26,6 +26,7 @@
 3. **Hand off properly.** When you finish, write an `--- AGENT HANDOFF ---` block (see AGENTS.md §11) so the next agent can pick up.
 4. **Constitution is supreme.** If your task conflicts with the constitution, stop and ask for an ADR.
 5. **Never skip tests.** No production code without failing tests first (Red-Green-Refactor).
+6. **Memory is centralized.** Submit reusable observations to `memory/inbox/` with source and evidence; only `memory-steward` may promote durable `brain/` memory.
 
 ## Checklist
 

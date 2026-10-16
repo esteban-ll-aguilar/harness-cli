@@ -313,10 +313,9 @@ function syncRules(cwd, harnessDir) {
     }
     section.push('', '> Manage with `harness rules list | add | remove | sync`.');
 
-    // Update .harness/brain/AGENTS.md and the root AGENTS.md copy
+    // Update the canonical instructions, then regenerate the root entry point.
     const agentsPath = path.join(harnessDir, 'brain', 'AGENTS.md');
-    const rootAgentsPath = path.join(cwd, 'AGENTS.md');
-    for (const fp of [agentsPath, rootAgentsPath]) {
+    for (const fp of [agentsPath]) {
         if (!fs.existsSync(fp)) continue;
         let content = fs.readFileSync(fp, 'utf8');
 
@@ -333,6 +332,7 @@ function syncRules(cwd, harnessDir) {
         content += `\n*Last updated: ${new Date().toISOString().split('T')[0]}*\n*This file is maintained by the Harness system. Do not edit manually without ADR.*\n`;
         fs.writeFileSync(fp, content);
     }
+    require('../utils/projectLayout.js').repairAgentLayout(cwd, harnessDir);
 }
 
 function checkRules(cwd, harnessDir) {
@@ -343,10 +343,11 @@ function checkRules(cwd, harnessDir) {
 
     const agents = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : '';
     const root = fs.existsSync(rootAgentsPath) ? fs.readFileSync(rootAgentsPath, 'utf8') : '';
+    const rootPointsToCanonical = root.includes('.harness/brain/AGENTS.md');
 
     let pass = 0, fail = 0;
     for (const r of rules) {
-        const present = agents.includes(r.title) && root.includes(r.title);
+        const present = agents.includes(r.title) && rootPointsToCanonical;
         if (present) { pass++; } else { fail++; console.log(`  ❌ Rule not in AGENTS.md: ${r.title}`); }
     }
     console.log(`

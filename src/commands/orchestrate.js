@@ -15,8 +15,8 @@ const { getHarnessDir, withHarnessRCLock, loadHarnessRC, timestamp } = require('
  * to dispatch next.
  *
  *   harness orchestrate status                    List specs + claim state
- *   harness orchestrate claim <specId> [--owner=]  Reserve a spec (idempotent)
- *   harness orchestrate release <specId> [--owner=] Free a spec (idempotent)
+ *   harness orchestrate claim <specId> [--task=ID] [--owner=]  Reserve a spec/task
+ *   harness orchestrate release <specId> [--task=ID] [--owner=] Free a spec/task
  */
 
 const STALE_CLAIM_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -76,7 +76,8 @@ function statusCmd(cwd) {
     for (const spec of specs) {
         const cs = claimState(spec);
         const claim = cs.free ? 'free' : `claimed by ${cs.owner}${cs.stale ? ' (stale)' : ''} since ${cs.claimedAt}`;
-        console.log(`  📌 ${spec.id} — ${spec.name}  [${spec.status || 'unknown'}]  → ${claim}`);
+        const tasks = Object.entries(spec.taskClaims || {}).map(([id, c]) => `${id}:${c.owner}`).join(', ');
+        console.log(`  📌 ${spec.id} — ${spec.name}  [${spec.status || 'unknown'}]  → ${claim}${tasks ? ` · tasks ${tasks}` : ''}`);
     }
     console.log('');
 }
@@ -88,6 +89,7 @@ function claimCmd(cwd, harnessDir, args) {
         return;
     }
     const ownerFlag = args.find(a => a.startsWith('--owner='));
+    const task = args.find(a => a.startsWith('--task='))?.slice(7);
     const owner = ownerFlag ? ownerFlag.slice(8) : defaultOwner();
     const ts = timestamp();
 
@@ -96,6 +98,16 @@ function claimCmd(cwd, harnessDir, args) {
         outcome = withHarnessRCLock(cwd, (rc) => {
             const spec = (rc.activeSpecs || []).find(s => s.id === specId);
             if (!spec) return { error: `Spec "${specId}" not found in active specs.` };
+            if (task) {
+                spec.taskClaims = spec.taskClaims || {};
+                const current = spec.taskClaims[task];
+                const stale = current && Date.now() - new Date(current.claimedAt).getTime() > STALE_CLAIM_MS;
+                if (!current || stale || current.owner === owner) {
+                    spec.taskClaims[task] = { owner, claimedAt: new Date().toISOString() };
+                    return { claimed: true, task, stolen: Boolean(current && stale), previousOwner: current?.owner, alreadyOwn: current?.owner === owner };
+                }
+                return { refused: true, task, owner: current.owner, claimedAt: current.claimedAt };
+            }
 
             const cs = claimState(spec);
             if (cs.free || cs.stale) {
@@ -116,11 +128,11 @@ function claimCmd(cwd, harnessDir, args) {
 
     if (outcome.error) { console.log(`❌ ${outcome.error}`); return; }
     if (outcome.refused) {
-        console.log(`🛑 Spec ${specId} is already claimed by ${outcome.owner} (since ${outcome.claimedAt}). Try another spec.`);
+        console.log(`🛑 ${outcome.task ? `Task ${outcome.task} in ` : ''}Spec ${specId} is already claimed by ${outcome.owner} (since ${outcome.claimedAt}). Try another task.`);
         return;
     }
     if (outcome.alreadyOwn) {
-        console.log(`✅ Spec ${specId} is already claimed by you (${owner}). No change.`);
+        console.log(`✅ ${outcome.task ? `Task ${outcome.task} in ` : ''}Spec ${specId} is already claimed by you (${owner}). No change.`);
         return;
     }
     if (outcome.stolen) {
@@ -128,21 +140,26 @@ function claimCmd(cwd, harnessDir, args) {
         logClaimEvent(harnessDir, specId, 'claim-stolen', `${owner} took over a stale claim from ${outcome.previousOwner}`, ts);
         return;
     }
-    console.log(`✅ Spec ${specId} claimed by ${owner}.`);
+    console.log(`✅ ${task ? `Task ${task} in ` : ''}Spec ${specId} claimed by ${owner}.`);
 }
 
 function releaseCmd(cwd, harnessDir, args) {
     const specId = args[0];
     if (!specId) {
-        console.log('❌ Usage: harness orchestrate release <specId>');
+        console.log('❌ Usage: harness orchestrate release <specId> [--task=ID]');
         return;
     }
 
+    const task = args.find(a => a.startsWith('--task='))?.slice(7);
     let outcome;
     try {
         outcome = withHarnessRCLock(cwd, (rc) => {
             const spec = (rc.activeSpecs || []).find(s => s.id === specId);
             if (!spec) return { error: `Spec "${specId}" not found in active specs.` };
+            if (task) {
+                if (!spec.taskClaims?.[task]) return { alreadyFree: true, task };
+                delete spec.taskClaims[task]; return { released: true, task };
+            }
             if (!spec.claimedBy) return { alreadyFree: true };
             delete spec.claimedBy;
             delete spec.claimedAt;
@@ -154,8 +171,8 @@ function releaseCmd(cwd, harnessDir, args) {
     }
 
     if (outcome.error) { console.log(`❌ ${outcome.error}`); return; }
-    if (outcome.alreadyFree) { console.log(`✅ Spec ${specId} was already free. No change.`); return; }
-    console.log(`✅ Spec ${specId} released.`);
+    if (outcome.alreadyFree) { console.log(`✅ ${task ? `Task ${task} in ` : ''}Spec ${specId} was already free. No change.`); return; }
+    console.log(`✅ ${task ? `Task ${task} in ` : ''}Spec ${specId} released.`);
 }
 
 function logClaimEvent(harnessDir, specId, event, reason, ts) {

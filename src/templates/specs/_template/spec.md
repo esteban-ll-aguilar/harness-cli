@@ -1,3 +1,13 @@
+---
+id: spec-{{id}}
+kind: specification
+created_at: {{date}}
+updated_at: {{date}}
+confidence: 0.9
+owner: architect
+retention: durable
+---
+
 # Spec {{id}}: {{name}}
 
 > **Status:** Draft → Review → Approved → Implemented → Verified → Done
@@ -33,7 +43,7 @@
 
 ### 2.1 Functional Requirements
 
-#### FR-001: [Requirement Name]
+#### REQ-001: [Requirement Name]
 - **Priority:** Must Have | Should Have | Could Have | Won't Have
 - **EARS:** The system shall [action] when [condition].
 - **Acceptance Criteria:**
@@ -41,14 +51,14 @@
   2. [Criterion 2]
 - **BDD Ref:** See `features/{{slug}}.feature` Scenario: [name]
 
-#### FR-002: [Requirement Name]
+#### REQ-002: [Requirement Name]
 - **Priority:** Must Have
 - **EARS:** When [event], the system shall [action].
 - **Acceptance Criteria:**
   1. [Criterion 1]
 - **BDD Ref:** See `features/{{slug}}.feature` Scenario: [name]
 
-#### FR-003: [Requirement Name]
+#### REQ-003: [Requirement Name]
 - **Priority:** Should Have
 - **EARS:** While [state], the system shall [action].
 - **Acceptance Criteria:**
@@ -56,17 +66,17 @@
 
 ### 2.2 Non-Functional Requirements
 
-#### NFR-001: Performance
+#### REQ-004: Performance
 - **EARS:** The system shall respond to [action] within [time] for [load].
 - **Metric:** P95 < 200ms @ 1000 concurrent users
 - **Test:** Load test in `tests/performance/`
 
-#### NFR-002: Security
+#### REQ-005: Security
 - **EARS:** The system shall [security action] for all [resource].
 - **Standard:** OWASP Top 10 compliance
 - **Test:** Security scan in CI
 
-#### NFR-003: Reliability
+#### REQ-006: Reliability
 - **EARS:** The system shall maintain [availability] during [condition].
 - **Metric:** 99.9% uptime
 - **Test:** Chaos engineering tests

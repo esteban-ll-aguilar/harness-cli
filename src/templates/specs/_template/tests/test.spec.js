@@ -6,6 +6,8 @@
  * RULE: All tests must FAIL before implementation (Red phase)
  * RULE: One concept per test
  * RULE: Test names are complete sentences
+ * Map each executable test with `@covers:REQ-001` so harness quality trace
+ * can prove the SDD → BDD → TDD chain.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -42,10 +44,12 @@ describe('Domain: [Entity]', () => {
       expect(true).toBe(false); // Force fail until implemented
     });
 
+    // @covers:REQ-001 @adversarial:REQ-001 — malformed DTO: required field omitted
     it('should reject creation with missing required field "[field]"', () => {
       expect(true).toBe(false);
     });
 
+    // @covers:REQ-001 @adversarial:REQ-001 — malformed DTO: invalid type/format
     it('should reject creation with invalid email format', () => {
       expect(true).toBe(false);
     });
@@ -60,6 +64,7 @@ describe('Domain: [Entity]', () => {
       expect(true).toBe(false);
     });
 
+    // @covers:REQ-001 @adversarial:REQ-001 — malformed DTO: null where a value is required
     it('should reject null values for non-nullable fields', () => {
       expect(true).toBe(false);
     });
@@ -159,6 +164,7 @@ describe('Repository: [Entity] PostgreSQL', () => {
   });
 
   describe('SQL injection prevention', () => {
+    // @covers:REQ-001 @adversarial:REQ-001 — hostile payload must not alter persistence
     it('should safely handle malicious input in queries', async () => {
       const maliciousInput = "'; DROP TABLE users; --";
       // Execute query with malicious input

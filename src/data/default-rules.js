@@ -73,6 +73,27 @@ const SENIOR = [
         rationale: 'La memoria del harness (brain/ + memory/) solo es útil si se alimenta activamente. Un hallazgo no escrito se pierde en cuanto termina la sesión y el próximo agente vuelve a pagar el costo de descubrirlo.'
     },
     {
+        id: 'trazabilidad-sdd-bdd-tdd',
+        severity: 'must',
+        tag: 'quality',
+        title: 'Cada requisito normativo REQ-* debe tener al menos un scenario BDD @covers y un test TDD @covers antes de declarar la feature lista. No marcar una etapa como completa si la trazabilidad muestra huecos.',
+        rationale: 'La trazabilidad evita que una specification bonita, un archivo Gherkin y pruebas aisladas aparenten calidad sin demostrar que verifican el mismo comportamiento.'
+    },
+    {
+        id: 'memoria-con-procedencia-y-un-escritor',
+        severity: 'must',
+        tag: 'memory',
+        title: 'Los agentes deben enviar observaciones con fuente y evidencia a memory/inbox; solo Memory Steward promueve memoria durable. Nunca sobrescribir decisiones o patrones compartidos directamente desde un subagente.',
+        rationale: 'Un único escritor para memoria durable evita colisiones y contaminación entre agentes, mientras el inbox append-only conserva evidencia y permite auditoría.'
+    },
+    {
+        id: 'contexto-acotado-y-relevante',
+        severity: 'must',
+        tag: 'context',
+        title: 'Antes de trabajar, cargar contexto con presupuesto y recibo; no pegar documentos completos ni historial ilimitado al prompt. Investigar solo la memoria relevante para el objetivo y reportar incertidumbre.',
+        rationale: 'Más contexto no equivale a mejor razonamiento. El contexto no relevante degrada atención, cuesta tokens y aumenta el riesgo de que un agente siga instrucciones obsoletas.'
+    },
+    {
         id: 'validar-boundary-y-manejar-errores',
         severity: 'must',
         tag: 'security',

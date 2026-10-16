@@ -12,7 +12,7 @@ Feature: {{name}}
   # HAPPY PATH SCENARIOS
   # ============================================================
 
-  @critical @smoke
+  @critical @smoke @covers:REQ-001
   Scenario: Successfully [main action]
     Given [precondition state]
     And [additional precondition]
@@ -21,7 +21,7 @@ Feature: {{name}}
     And [additional expectation]
     And [side effect verification]
 
-  @happy-path
+  @happy-path @covers:REQ-002
   Scenario: [Alternative happy path]
     Given [precondition]
     When [alternative action]
@@ -31,7 +31,7 @@ Feature: {{name}}
   # VALIDATION / ERROR SCENARIOS
   # ============================================================
 
-  @validation @error
+  @validation @error @adversarial:REQ-003 @covers:REQ-003
   Scenario: Reject [invalid input type]
     Given [valid precondition]
     When [action with invalid input]
@@ -40,7 +40,7 @@ Feature: {{name}}
     And the error message should contain "[expected message]"
     And no [side effect] should occur
 
-  @validation @error
+  @validation @error @adversarial:REQ-001
   Scenario Outline: Reject various invalid inputs
     Given [precondition]
     When [action] with <invalid_input>
@@ -57,14 +57,14 @@ Feature: {{name}}
   # AUTHENTICATION / AUTHORIZATION
   # ============================================================
 
-  @auth @security
+  @auth @security @adversarial:REQ-001
   Scenario: Reject unauthenticated request
     Given no authenticated user
     When [protected action]
     Then the response status should be 401
     And the error code should be "UNAUTHORIZED"
 
-  @auth @security
+  @auth @security @adversarial:REQ-001
   Scenario: Reject unauthorized request
     Given an authenticated user with role "user"
     When [admin-only action]
@@ -75,13 +75,13 @@ Feature: {{name}}
   # EDGE CASES & BOUNDARIES
   # ============================================================
 
-  @edge-case
+  @edge-case @adversarial:REQ-001
   Scenario: Handle [boundary condition]
     Given [boundary state]
     When [action at boundary]
     Then [expected boundary behavior]
 
-  @edge-case @concurrency
+  @edge-case @concurrency @adversarial:REQ-001
   Scenario: Handle concurrent [actions]
     Given [initial state]
     When 10 users simultaneously [action]

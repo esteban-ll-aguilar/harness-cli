@@ -254,6 +254,14 @@ const TOOLS = [
     }
 ];
 
+// Keep legacy handlers callable for existing integrations, but advertise only
+// the small workflow surface an agent needs to remember.
+const PUBLIC_TOOL_NAMES = new Set([
+    'harness_init', 'harness_new_change', 'harness_status', 'harness_context',
+    'harness_agent_run', 'harness_advance', 'harness_review', 'harness_test'
+]);
+const PUBLIC_TOOLS = TOOLS.filter(tool => PUBLIC_TOOL_NAMES.has(tool.name));
+
 class HarnessExit extends Error {}
 
 const originalExit = process.exit;
@@ -318,7 +326,7 @@ rl.on('line', (line) => {
     }
 
     if (msg.method === 'tools/list') {
-        respond(msg.id, { tools: TOOLS });
+        respond(msg.id, { tools: PUBLIC_TOOLS });
         return;
     }
 

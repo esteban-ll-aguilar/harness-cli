@@ -4,6 +4,7 @@ const readline = require('readline');
 const { ensureDir, copyDir, copyTemplate, writeHarnessRC, getHarnessDir } = require('../utils/fileUtils.js');
 const { detectLanguages, getLanguageConfig } = require('../utils/languageDetector.js');
 const { parseToolsFlag, ALL_TOOL_IDS, writeToolConfigs } = require('../utils/toolSetup.js');
+const { repairAgentLayout } = require('../utils/projectLayout.js');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 
@@ -45,9 +46,34 @@ async function selectLanguage(rl, detection) {
 async function initProject(cwd, args) {
     const harnessDir = path.join(cwd, '.harness');
     const force = args.includes('--force');
+    const repair = args.includes('--repair');
+    const semanticMemory = !args.includes('--no-semantic-memory');
+
+    if (fs.existsSync(harnessDir) && repair && !force) {
+        repairAgentLayout(cwd, harnessDir);
+        const { ensureAgents } = require('./agent.js');
+        ensureAgents(cwd);
+        // A checkout on a new machine keeps the canonical Markdown memory but
+        // not the derived model/index. Repair provisions only what is missing;
+        // it never reinitializes or overwrites the project vault.
+        if (semanticMemory) {
+            try {
+                const { getSemanticIndex, buildSemanticIndex } = require('../utils/semanticMemory.js');
+                if (!getSemanticIndex(harnessDir, { rebuildIfMissing: false })) {
+                    const index = buildSemanticIndex(harnessDir);
+                    console.log(`🧠 Semantic memory provisioned during repair: ${index.documents.length} chunks`);
+                }
+            } catch (e) {
+                console.log(`⚠️  Semantic memory still unavailable: ${e.message}`);
+                console.log('   BM25 + graph retrieval remain active; retry: harness memory semantic setup');
+            }
+        }
+        console.log('✅ Harness layout repaired: root AGENTS.md and .agents/ projection are current.');
+        return;
+    }
 
     if (fs.existsSync(harnessDir) && !force) {
-        console.log('⚠️  .harness/ already exists. Use --force to reinitialize.');
+        console.log('⚠️  .harness/ already exists. Use --repair to restore entry points or --force to reinitialize.');
         return;
     }
 
@@ -185,7 +211,11 @@ async function initProject(cwd, args) {
                 tester: { enabled: true, model: 'capable' },
                 coder: { enabled: true, model: 'mid' },
                 reviewer: { enabled: true, model: 'capable' },
-                guardian: { enabled: true, model: 'fast' }
+                guardian: { enabled: true, model: 'fast' },
+                'memory-steward': { enabled: true, model: 'fast' },
+                'backend-engineer': { enabled: true, model: 'capable' },
+                'frontend-engineer': { enabled: true, model: 'capable' },
+                'security-reviewer': { enabled: true, model: 'capable' }
             },
             tools: {
                 selected: selectedTools,
@@ -198,25 +228,42 @@ async function initProject(cwd, args) {
                 requireSpec: true,
                 requireBdd: true,
                 requireTdd: true,
-                approvalGates: ['architect']
+                // Commands are intentionally opt-in: templates document safe defaults,
+                // while legacy projects are never blocked by guessed tooling.
+                gates: {
+                    lint: { command: langConfig.lint, required: false },
+                    coverage: { command: langConfig.coverage, required: false }
+                },
+                approvalGates: ['architect'],
+                traceabilityMode: 'warn',
+                requireAdversarialTests: true,
+                contextBudgetTokens: 1200
             }
         });
 
         // Create root-level references
-        const rootAgents = path.join(cwd, 'AGENTS.md');
         const rootHarnessIgnore = path.join(cwd, '.harnessignore');
-
-        const agentsContent = fs.readFileSync(path.join(harnessDir, 'brain', 'AGENTS.md'), 'utf8');
-        fs.writeFileSync(rootAgents, agentsContent);
+        repairAgentLayout(cwd, harnessDir);
 
         fs.writeFileSync(rootHarnessIgnore, `# Harness ignore patterns
 node_modules/
 .harness/memory/session-logs/
 .harness/memory/obsidian/
 .harness/.index/
+.harness/.models/
 *.log
 .env
 `);
+
+        // Keep canonical Markdown memory versionable, while preventing large,
+        // model-specific derived artifacts from creating Git conflicts.
+        const gitignorePath = path.join(cwd, '.gitignore');
+        const semanticIgnores = ['.harness/.index/', '.harness/.models/', '.harness/memory/session-logs/'];
+        const existingGitignore = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+        const missingIgnores = semanticIgnores.filter(rule => !existingGitignore.split('\n').includes(rule));
+        if (missingIgnores.length) {
+            fs.writeFileSync(gitignorePath, `${existingGitignore}${existingGitignore && !existingGitignore.endsWith('\n') ? '\n' : ''}# Harness derived indexes and local embedding model\n${missingIgnores.join('\n')}\n`);
+        }
 
         const rootObsidian = path.join(cwd, '.obsidian');
         if (!fs.existsSync(rootObsidian)) {
@@ -280,7 +327,20 @@ isMonorepo: ${detection.isMonorepo}
         saveIndex(harnessDir, index);
         generateObsidian(cwd, harnessDir);
 
-        // Auto-generate the 6 built-in agent competency scripts
+        // Semantic long-term memory is local to Node. The embedding model is
+        // provisioned once into .harness/.models and the derived vector index
+        // stays beside the other rebuildable indexes (never a cloud service).
+        let semanticResult = null;
+        if (semanticMemory) {
+            try {
+                const { buildSemanticIndex } = require('../utils/semanticMemory.js');
+                semanticResult = buildSemanticIndex(harnessDir);
+            } catch (e) {
+                semanticResult = { error: e.message };
+            }
+        }
+
+        // Auto-generate the built-in lifecycle, specialist and memory scripts.
         const { ensureAgents } = require('./agent.js');
         ensureAgents(cwd);
 
@@ -306,6 +366,13 @@ ${rulesResult && rulesResult.ok ? `
 📜 Default rules seeded: ${rulesResult.added} senior-engineer rules (data modeling, propose-before-build UI/UX, reuse, verification, security, performance, honesty…)
    harness rules list          → see them all
    harness rules preset senior → re-apply/retrofit on any project` : ''}
+${!semanticMemory ? `
+ℹ️  Semantic memory skipped (--no-semantic-memory).
+   BM25 + graph retrieval remain active; enable later with: harness memory semantic setup` : semanticResult?.error ? `
+⚠️  Semantic memory setup could not complete: ${semanticResult.error}
+   BM25 + graph retrieval remain active. Re-run: harness memory semantic setup` : `
+🧠 Semantic long-term memory ready: ${semanticResult?.documents?.length || 0} indexed chunks
+   Model cache: .harness/.models/embeddings (local Node inference)`}
 
 🚀 Next steps:
    harness interview          → Start requirement gathering
